@@ -1,0 +1,32 @@
+[
+  {
+    "path": "terraform/storage.tf",
+    "file_type": "terraform-hcl",
+    "content": "resource \"aws_s3_bucket\" \"finance_records\" {\n  bucket = \"corp-finance-records-q3\"\n  acl    = \"public-read\"\n\n  tags = {\n    Environment = \"Production\"\n    Owner       = \"Finance\"\n  }\n}\n"
+  },
+  {
+    "path": "terraform/network.tf",
+    "file_type": "terraform-hcl",
+    "content": "resource \"aws_security_group\" \"bastion_sg\" {\n  name        = \"bastion-sg\"\n  description = \"Bastion host security group\"\n  vpc_id      = \"vpc-0123456789abcdef0\"\n\n  ingress {\n    from_port   = 22\n    to_port     = 22\n    protocol    = \"tcp\"\n    cidr_blocks = [\"0.0.0.0/0\"]\n  }\n}\n"
+  },
+  {
+    "path": "terraform/secrets.tf",
+    "file_type": "terraform-hcl",
+    "content": "provider \"aws\" {\n  region     = \"us-east-1\"\n  access_key = \"AKIAIOSFODNN7EXAMPLE\"\n}\n"
+  },
+  {
+    "path": "k8s/deployment.yaml",
+    "file_type": "kubernetes-yaml",
+    "content": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: billing-api\n  namespace: production\nspec:\n  replicas: 3\n  selector:\n    matchLabels:\n      app: billing-api\n  template:\n    metadata:\n      labels:\n        app: billing-api\n    spec:\n      containers:\n      - name: billing-api\n        image: registry.internal.net/billing:v2.1.0\n        securityContext:\n          privileged: true\n"
+  },
+  {
+    "path": "docker/Dockerfile",
+    "file_type": "dockerfile",
+    "content": "FROM node:latest\nWORKDIR /usr/src/app\nCOPY package*.json ./\nRUN npm install\nCOPY . .\nEXPOSE 3000\nCMD [\"node\", \"server.js\"]\n"
+  },
+  {
+    "path": ".github/workflows/ci.yaml",
+    "file_type": "github-actions-yaml",
+    "content": "name: CI Pipeline\non: [push, pull_request]\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n    - name: Checkout Code\n      uses: actions/checkout@main\n    - name: Run Test Suite\n      run: npm test\n"
+  }
+]

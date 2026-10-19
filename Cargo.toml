@@ -18,6 +18,8 @@ members = [
     "apps/identitysecure-cli",
     "apps/workloadsecure",
     "apps/workloadsecure-cli",
+    "apps/codesecure",
+    "apps/codesecure-cli",
 ]
 
 [workspace.package]

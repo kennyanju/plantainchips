@@ -1,0 +1,20 @@
+[
+  {
+    "name": "tokio",
+    "version": "1.38.0",
+    "purl": "pkg:cargo/tokio@1.38.0",
+    "license": "MIT"
+  },
+  {
+    "name": "serde",
+    "version": "1.0.203",
+    "purl": "pkg:cargo/serde@1.0.203",
+    "license": "Apache-2.0"
+  },
+  {
+    "name": "openssl",
+    "version": "3.0.12",
+    "purl": "pkg:deb/debian/openssl@3.0.12-1?arch=amd64",
+    "license": "Apache-2.0"
+  }
+]

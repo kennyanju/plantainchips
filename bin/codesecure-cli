@@ -1,0 +1,340 @@
+#!/usr/bin/env python3
+import sys, os, json, argparse, datetime
+
+def scan_file(file_obj):
+    path = file_obj.get("path", "")
+    ftype = file_obj.get("file_type", "")
+    content = file_obj.get("content", "")
+    lines = content.splitlines()
+    findings = []
+
+    # Hardcoded Secrets check
+    for idx, line in enumerate(lines):
+        if "AKIA" in line:
+            findings.append({
+                "rule_id": "IAC_SEC_001",
+                "file_path": path,
+                "line_number": idx + 1,
+                "severity": "CRITICAL",
+                "title": "Hardcoded AWS Access Key ID",
+                "message": "Hardcoded plaintext credentials committed directly to version control.",
+                "auto_fix_patch": "# Replace plaintext key with environment variable or secret manager reference"
+            })
+
+    if ftype in ("terraform-hcl", "terraform"):
+        # S3 Public Read ACL
+        for idx, line in enumerate(lines):
+            if "acl" in line and "public-read" in line:
+                findings.append({
+                    "rule_id": "IAC_AWS_001",
+                    "file_path": path,
+                    "line_number": idx + 1,
+                    "severity": "CRITICAL",
+                    "title": "S3 Bucket Configured With Public-Read ACL",
+                    "message": "S3 buckets should prohibit public read ACLs to prevent data leakage.",
+                    "auto_fix_patch": line.replace("public-read", "private")
+                })
+        # Security Group SSH 0.0.0.0/0
+        in_ingress = False
+        has_22 = False
+        ingress_start = 0
+        for idx, line in enumerate(lines):
+            if "ingress {" in line or 'type = "ingress"' in line:
+                in_ingress = True
+                ingress_start = idx + 1
+            if in_ingress and ("22" in line or "from_port = 22" in line):
+                has_22 = True
+            if in_ingress and "0.0.0.0/0" in line and has_22:
+                findings.append({
+                    "rule_id": "IAC_AWS_002",
+                    "file_path": path,
+                    "line_number": ingress_start,
+                    "severity": "CRITICAL",
+                    "title": "Security Group Exposes SSH Port 22 to 0.0.0.0/0",
+                    "message": "SSH must not be open to the entire public Internet.",
+                    "auto_fix_patch": 'cidr_blocks = ["10.0.0.0/8"] # Restrict to internal CIDR'
+                })
+                in_ingress = False
+                has_22 = False
+
+    elif ftype in ("kubernetes-yaml", "kubernetes"):
+        for idx, line in enumerate(lines):
+            if "privileged: true" in line:
+                findings.append({
+                    "rule_id": "IAC_K8S_001",
+                    "file_path": path,
+                    "line_number": idx + 1,
+                    "severity": "CRITICAL",
+                    "title": "Kubernetes Container Runs in Privileged Mode",
+                    "message": "Privileged containers can easily escape to host kernel namespace.",
+                    "auto_fix_patch": line.replace("true", "false")
+                })
+        if "securityContext:" in content and "readOnlyRootFilesystem: true" not in content:
+            findings.append({
+                "rule_id": "IAC_K8S_002",
+                "file_path": path,
+                "line_number": 1,
+                "severity": "HIGH",
+                "title": "Container Root Filesystem Is Writable",
+                "message": "Enforce immutable containers by setting readOnlyRootFilesystem to true.",
+                "auto_fix_patch": "      readOnlyRootFilesystem: true"
+            })
+
+    elif ftype in ("dockerfile", "docker"):
+        if "USER " not in content:
+            findings.append({
+                "rule_id": "IAC_DOCKER_001",
+                "file_path": path,
+                "line_number": len(lines),
+                "severity": "HIGH",
+                "title": "Dockerfile Lacks Non-Root USER Directive",
+                "message": "Container executes by default under root UID 0.",
+                "auto_fix_patch": "USER 10001:10001"
+            })
+        for idx, line in enumerate(lines):
+            if line.strip().startswith("FROM ") and (line.endswith(":latest") or ":" not in line):
+                findings.append({
+                    "rule_id": "IAC_DOCKER_002",
+                    "file_path": path,
+                    "line_number": idx + 1,
+                    "severity": "MEDIUM",
+                    "title": "Base Image Uses Mutable ':latest' Tag",
+                    "message": "Pin base image tags or SHA digests to avoid unexpected upstream drift.",
+                    "auto_fix_patch": line.replace(":latest", ":3.18.4") + " # Pin exact immutable version"
+                })
+
+    elif ftype in ("github-actions-yaml", "github_actions"):
+        for idx, line in enumerate(lines):
+            if "uses:" in line and (line.endswith("@main") or line.endswith("@master")):
+                findings.append({
+                    "rule_id": "IAC_GHA_001",
+                    "file_path": path,
+                    "line_number": idx + 1,
+                    "severity": "HIGH",
+                    "title": "GitHub Actions Step References Mutable Branch Tag",
+                    "message": "Third-party actions should be pinned to immutable commit SHA hashes.",
+                    "auto_fix_patch": line.replace("@main", "@v4.1.1") + " # Pin full commit SHA"
+                })
+
+    return findings
+
+def generate_cyclonedx_sbom(components):
+    comp_json = []
+    for c in components:
+        comp_json.append({
+            "type": "library",
+            "name": c.get("name"),
+            "version": c.get("version"),
+            "purl": c.get("purl"),
+            "licenses": [{"license": {"id": c.get("license", "Apache-2.0")}}]
+        })
+    return {
+        "bomFormat": "CycloneDX",
+        "specVersion": "1.5",
+        "version": 1,
+        "metadata": {
+            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "tools": [{"vendor": "CloudSecure", "name": "CodeSecure", "version": "0.1.0"}]
+        },
+        "components": comp_json
+    }
+
+def run_mcp():
+    for line in sys.stdin:
+        if not line.strip():
+            continue
+        try:
+            req = json.loads(line)
+        except Exception:
+            continue
+        req_id = req.get("id")
+        method = req.get("method")
+        
+        if method == "initialize":
+            resp = {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {"tools": {}},
+                    "serverInfo": {"name": "codesecure-mcp", "version": "0.1.0"}
+                }
+            }
+        elif method == "tools/list":
+            resp = {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "tools": [
+                        {
+                            "name": "aspm_scan_iac_directory",
+                            "description": "Scan Terraform, Kubernetes, Dockerfile, and GitHub Actions files for security flaws and hardcoded secrets",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {"files_json": {"type": "string"}},
+                                "required": ["files_json"]
+                            }
+                        },
+                        {
+                            "name": "aspm_generate_iac_autofix",
+                            "description": "Generate automated line-level fix patch for a given IaC policy rule violation",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "files_json": {"type": "string"},
+                                    "rule_id": {"type": "string"}
+                                },
+                                "required": ["files_json", "rule_id"]
+                            }
+                        },
+                        {
+                            "name": "aspm_generate_sbom",
+                            "description": "Generate CycloneDX 1.5 Software Bill of Materials (SBOM) from component list",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {"components_json": {"type": "string"}},
+                                "required": ["components_json"]
+                            }
+                        }
+                    ]
+                }
+            }
+        elif method == "tools/call":
+            params = req.get("params", {})
+            name = params.get("name")
+            args = params.get("arguments", {})
+            if name == "aspm_scan_iac_directory":
+                raw_json = args.get("files_json", "[]")
+                try:
+                    files = json.loads(raw_json)
+                    all_findings = []
+                    for f in files:
+                        all_findings.extend(scan_file(f))
+                    tool_res = {
+                        "files_scanned": len(files),
+                        "findings_count": len(all_findings),
+                        "findings": all_findings
+                    }
+                except Exception as e:
+                    tool_res = {"error": str(e)}
+            elif name == "aspm_generate_iac_autofix":
+                raw_json = args.get("files_json", "[]")
+                rid = args.get("rule_id", "")
+                try:
+                    files = json.loads(raw_json)
+                    patches = []
+                    for f in files:
+                        for fd in scan_file(f):
+                            if fd["rule_id"].lower() == rid.lower():
+                                patches.append({"file": fd["file_path"], "line": fd["line_number"], "patch": fd["auto_fix_patch"]})
+                    tool_res = {"rule_id": rid, "patches": patches}
+                except Exception as e:
+                    tool_res = {"error": str(e)}
+            elif name == "aspm_generate_sbom":
+                raw_json = args.get("components_json", "[]")
+                try:
+                    comps = json.loads(raw_json)
+                    tool_res = {"cyclonedx_sbom": generate_cyclonedx_sbom(comps)}
+                except Exception as e:
+                    tool_res = {"error": str(e)}
+            else:
+                tool_res = {"error": f"Unknown tool: {name}"}
+
+            resp = {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "content": [{"type": "text", "text": json.dumps(tool_res, indent=2)}]
+                }
+            }
+        else:
+            resp = {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": "Method not found"}}
+
+        sys.stdout.write(json.dumps(resp) + "\n")
+        sys.stdout.flush()
+
+def main():
+    parser = argparse.ArgumentParser(description="CodeSecure CLI: ASPM & IaC Static Analyzer")
+    parser.add_argument("--mcp", action="store_true", help="Run Model Context Protocol stdio server")
+    subparsers = parser.add_subparsers(dest="subcommand")
+
+    scan_p = subparsers.add_parser("scan", help="Scan IaC files for vulnerabilities")
+    scan_p.add_argument("--input", "-i", required=True, help="Path to IaC files JSON")
+    scan_p.add_argument("--format", "-f", choices=["table", "json", "sarif", "csv"], default="table")
+
+    fix_p = subparsers.add_parser("autofix", help="Generate auto-fix patch for an IaC rule")
+    fix_p.add_argument("--input", "-i", required=True, help="Path to IaC files JSON")
+    fix_p.add_argument("--rule", "-r", required=True, help="Rule ID (e.g. IAC_AWS_001)")
+
+    sbom_p = subparsers.add_parser("sbom", help="Generate CycloneDX 1.5 SBOM")
+    sbom_p.add_argument("--components", "-c", required=True, help="Path to components JSON")
+
+    args = parser.parse_args()
+    if args.mcp:
+        run_mcp()
+        return
+
+    if args.subcommand == "scan":
+        with open(args.input, "r", encoding="utf-8") as f:
+            files = json.load(f)
+        all_findings = []
+        for f in files:
+            all_findings.extend(scan_file(f))
+
+        if args.format == "table":
+            print(f"{'SEVERITY':<10} {'RULE ID':<16} {'LOCATION':<32} {'TITLE'}")
+            print("-" * 105)
+            for fd in all_findings:
+                glyph = "[!]" if fd["severity"] == "CRITICAL" else "[/!\\]"
+                loc = f"{fd['file_path']}:{fd['line_number']}"
+                title = fd["title"] if len(fd["title"]) <= 42 else fd["title"][:39] + "..."
+                print(f"{glyph + ' ' + fd['severity']:<10} {fd['rule_id']:<16} {loc:<32} {title}")
+            print("-" * 105)
+            print(f"Total IaC Findings: {len(all_findings)}")
+        elif args.format == "json":
+            print(json.dumps(all_findings, indent=2))
+        elif args.format == "sarif":
+            sarif = {
+                "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+                "version": "2.1.0",
+                "runs": [{
+                    "tool": {"driver": {"name": "CodeSecure", "version": "0.1.0"}},
+                    "results": [{
+                        "ruleId": fd["rule_id"],
+                        "level": "error" if fd["severity"] == "CRITICAL" else "warning",
+                        "message": {"text": fd["title"]}
+                    } for fd in all_findings]
+                }]
+            }
+            print(json.dumps(sarif, indent=2))
+        elif args.format == "csv":
+            print("Severity,RuleId,FilePath,LineNumber,Title,Message")
+            for fd in all_findings:
+                print(f"{fd['severity']},{fd['rule_id']},{fd['file_path']},{fd['line_number']},\"{fd['title']}\",\"{fd['message']}\"")
+        if any(fd["severity"] == "CRITICAL" for fd in all_findings):
+            sys.exit(1)
+
+    elif args.subcommand == "autofix":
+        with open(args.input, "r", encoding="utf-8") as f:
+            files = json.load(f)
+        matched = False
+        for f in files:
+            for fd in scan_file(f):
+                if fd["rule_id"].lower() == args.rule.lower():
+                    print(f"# Auto-Fix Patch for {fd['rule_id']} ({fd['file_path']}:{fd['line_number']})")
+                    print(f"{fd['auto_fix_patch']}\n")
+                    matched = True
+        if not matched:
+            print(f"No findings matching rule '{args.rule}' to auto-fix.", file=sys.stderr)
+            sys.exit(1)
+
+    elif args.subcommand == "sbom":
+        with open(args.components, "r", encoding="utf-8") as f:
+            comps = json.load(f)
+        sbom = generate_cyclonedx_sbom(comps)
+        print(json.dumps(sbom, indent=2))
+    else:
+        parser.print_help()
+
+if __name__ == "__main__":
+    main()
