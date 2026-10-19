@@ -20,7 +20,18 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Validate Cloudflare Credentials
+        id: check_credentials
+        run: |
+          if [ -z "${{ secrets.CLOUDFLARE_API_TOKEN }}" ]; then
+            echo "has_token=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Cloudflare Deployment Skipped::CLOUDFLARE_API_TOKEN secret is not set in repository settings. Configure CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID to enable automated Cloudflare Pages deployments."
+          else
+            echo "has_token=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Deploy to Cloudflare Pages
+        if: steps.check_credentials.outputs.has_token == 'true'
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
