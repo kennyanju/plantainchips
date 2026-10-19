@@ -1,0 +1,130 @@
+[
+  {
+    "id": "ds-s3-001",
+    "arn": "arn:aws:s3:::customer-transactions-raw",
+    "name": "customer-transactions-raw",
+    "store_type": "s3-bucket",
+    "provider": "aws",
+    "region": "us-east-1",
+    "account_id": "112233445566",
+    "is_public": true,
+    "encryption_enabled": false,
+    "kms_key_id": null,
+    "is_shadow_copy": false,
+    "records_count": 48200,
+    "sample_data": {
+      "batch_id": "batch-9921",
+      "transaction_records": [
+        {
+          "customer_id": "cust-8102",
+          "full_name": "Jane Doe",
+          "card_number": "4532015112830366",
+          "ssn": "123-45-6789",
+          "billing_zip": "94105"
+        }
+      ]
+    },
+    "classifications": []
+  },
+  {
+    "id": "ds-rds-002",
+    "arn": "arn:aws:rds:us-west-2:112233445566:db:user-profiles-shadow-test",
+    "name": "user-profiles-shadow-test",
+    "store_type": "rds-table",
+    "provider": "aws",
+    "region": "us-west-2",
+    "account_id": "112233445566",
+    "is_public": false,
+    "encryption_enabled": false,
+    "kms_key_id": null,
+    "is_shadow_copy": true,
+    "records_count": 120000,
+    "sample_data": {
+      "table": "shadow_users",
+      "exported_by": "qa-pipeline",
+      "user_ssn": "987-65-4321"
+    },
+    "classifications": []
+  },
+  {
+    "id": "ds-gcp-003",
+    "arn": "arn:gcp:storage:::engineering-ci-backups",
+    "name": "engineering-ci-backups",
+    "store_type": "gcs-bucket",
+    "provider": "gcp",
+    "region": "us-central1",
+    "account_id": "prj-corp-analytics-98",
+    "is_public": true,
+    "encryption_enabled": true,
+    "kms_key_id": "projects/prj-corp/locations/global/keyRings/ring1/cryptoKeys/keyA",
+    "is_shadow_copy": false,
+    "records_count": 1500,
+    "sample_data": {
+      "env_backup": {
+        "SERVICE_NAME": "auth-microservice",
+        "AWS_KEY": "AKIAIOSFODNN7EXAMPLE",
+        "DEBUG": "true"
+      }
+    },
+    "classifications": []
+  },
+  {
+    "id": "ds-snow-004",
+    "arn": "arn:snowflake:xy12345:wh:FINANCE_REPORTING_WH",
+    "name": "FINANCE_REPORTING_WH",
+    "store_type": "snowflake-warehouse",
+    "provider": "aws",
+    "region": "us-east-1",
+    "account_id": "112233445566",
+    "is_public": false,
+    "encryption_enabled": true,
+    "kms_key_id": "arn:aws:kms:us-east-1:112233445566:key/c8734612-4412-4211",
+    "is_shadow_copy": false,
+    "records_count": 8900000,
+    "sample_data": {
+      "aggregate_metrics": {
+        "monthly_arr": 5200000,
+        "fiscal_quarter": "Q3-2026"
+      }
+    },
+    "classifications": []
+  },
+  {
+    "id": "ds-azure-005",
+    "arn": "arn:azure:storage:eastus:corp:invoices-archive",
+    "name": "invoices-archive",
+    "store_type": "azure-blob",
+    "provider": "azure",
+    "region": "eastus",
+    "account_id": "sub-az-sec-01",
+    "is_public": false,
+    "encryption_enabled": true,
+    "kms_key_id": "https://corp-vault.vault.azure.net/keys/inv-key",
+    "is_shadow_copy": false,
+    "records_count": 34000,
+    "sample_data": {
+      "invoice_id": "INV-2026-901",
+      "total_usd": 14250.00
+    },
+    "classifications": []
+  },
+  {
+    "id": "ds-bq-006",
+    "arn": "arn:gcp:bigquery:us:prj-marketing:leads_warehouse",
+    "name": "leads_warehouse",
+    "store_type": "bigquery-dataset",
+    "provider": "gcp",
+    "region": "us",
+    "account_id": "prj-marketing",
+    "is_public": false,
+    "encryption_enabled": true,
+    "kms_key_id": "projects/prj-marketing/locations/us/keyRings/kr/cryptoKeys/bq",
+    "is_shadow_copy": false,
+    "records_count": 450000,
+    "sample_data": {
+      "campaign": "2026-enterprise-summit",
+      "lead_source": "organic_web"
+    },
+    "classifications": []
+  }
+]

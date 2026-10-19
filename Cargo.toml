@@ -8,6 +8,8 @@ members = [
     "crates/cloudsecure-mcp",
     "apps/posturesecure",
     "apps/posturesecure-cli",
+    "apps/datasecure",
+    "apps/datasecure-cli",
 ]
 
 [workspace.package]
