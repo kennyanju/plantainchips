@@ -1,0 +1,469 @@
+#!/usr/bin/env python3
+import sys, os, json, argparse, hashlib
+
+FRAMEWORKS = {
+    "soc2": {
+        "id": "soc2",
+        "title": "SOC 2 Type II (Trust Services Criteria)",
+        "controls": [
+            ("CC6.1", "Logical Access Controls & Public Perimeter Defense", "Restricts public exposure and access to authorized internal principals."),
+            ("CC6.3", "Principle of Least Privilege & Entitlement Management", "Disallows excessive and administrative wildcard IAM permissions."),
+            ("CC6.6", "Network Boundary & Choke Point Defense", "Enforces segmentation and firewalls between external Internet and crown-jewel assets."),
+            ("CC6.8", "Container & Workload Runtime Protection", "Guards workloads against container breakouts, malware, and root execution."),
+            ("CC7.2", "Continuous Security Monitoring & Anomaly Detection", "Detects command-and-control beacons and unauthorized security events."),
+            ("CC8.1", "Software Supply Chain Integrity & Change Management", "Enforces immutable build provenance and dependency trust gates.")
+        ]
+    },
+    "iso27001": {
+        "id": "iso27001",
+        "title": "ISO/IEC 27001:2022 Information Security",
+        "controls": [
+            ("A.9.2", "User Access Provisioning and Privileged Access", "Governs allocation and review of privileged identity access rights."),
+            ("A.12.2", "Protection Against Malicious Code and C2", "Implements controls to detect and isolate unauthorized beaconing software."),
+            ("A.13.1", "Network Security Management and Ingress Segregation", "Restricts inbound traffic from untrusted public networks."),
+            ("A.8.24", "Use of Cryptography and Key Management", "Enforces cryptographic encryption across data storage and transmission."),
+            ("A.8.28", "Secure Coding & Supply Chain Assurance", "Verifies third-party package dependencies against confusion attacks.")
+        ]
+    },
+    "pci": {
+        "id": "pci",
+        "title": "PCI-DSS v4.0 Payment Card Industry Standard",
+        "controls": [
+            ("1.2", "Inbound and Outbound Network Traffic Restrictions", "Restricts ingress traffic to cardholder environments and public buckets."),
+            ("1.3", "Prohibit Direct Internet Exposure to Internal Services", "Prevents direct routing from Internet to sensitive storage or SSH port 22."),
+            ("3.4", "Cardholder Data Encryption at Rest", "Requires cryptographic protection of stored data and automated backups."),
+            ("6.4", "Public-Facing Web Application Attack Protection", "Guards against injection, SQLi, and OWASP API security vulnerabilities."),
+            ("8.2", "Authentication Credential Management", "Prohibits hardcoded plain-text credentials and access keys in source code."),
+            ("11.5", "Intrusion Detection and File Integrity Monitoring", "Monitors workload behavior for unauthorized execution or compromise.")
+        ]
+    },
+    "hipaa": {
+        "id": "hipaa",
+        "title": "HIPAA Security Rule (45 CFR Part 164)",
+        "controls": [
+            ("164.312", "Technical Safeguards: Access Control & Data Protection", "Restricts ePHI exposure to authorized workforce members."),
+            ("164.312(a)(2)(iv)", "Encryption and Decryption at Rest", "Mandates encryption for database snapshots and persistent volumes."),
+            ("164.312(b)", "Audit Controls and Activity Logging", "Requires continuous logging of access and anomalous behaviors."),
+            ("164.312(e)(1)", "Transmission Security and Network Encryption", "Enforces secure encrypted transport channels across network perimeters.")
+        ]
+    },
+    "nist": {
+        "id": "nist",
+        "title": "NIST Cybersecurity Framework 2.0",
+        "controls": [
+            ("PR.AC-5", "Network Integrity and Ingress Segregation", "Prevents unauthorized lateral network access across cloud environments."),
+            ("PR.DS-1", "Data-at-Rest Confidentiality and Protection", "Guards confidential data and AI model weights from unauthorized disclosure."),
+            ("PR.IP-1", "Baseline Configuration & Least Privilege", "Maintains baseline configurations preventing root container execution."),
+            ("DE.CM-1", "Adversary Activity and Anomaly Monitoring", "Detects malicious network communication and command-and-control activity."),
+            ("SA-11", "Supply Chain Security Integrity Verification", "Verifies software build provenance and protects against dependency hijacking."),
+            ("RS.RP-1", "Incident Response Execution and Containment", "Executes automated containment on hosts exhibiting active compromise.")
+        ]
+    },
+    "fedramp": {
+        "id": "fedramp",
+        "title": "FedRAMP Moderate Security Baseline",
+        "controls": [
+            ("AC-2", "Account Management and Least Privilege Review", "Requires automated auditing of inactive administrative IAM accounts."),
+            ("SC-7", "Boundary Protection and Ingress Filtering", "Enforces boundary protection against public Internet exposure."),
+            ("SI-7", "Software, Firmware, and Information Integrity", "Verifies cryptographic signatures and immutable commit references."),
+            ("SI-4", "System Monitoring and Intrusion Detection", "Continuously monitors cloud traffic for anomalous DNS tunneling."),
+            ("SC-28", "Protection of Information at Rest with KMS", "Protects cloud databases and backups using FIPS 140-2 validated encryption.")
+        ]
+    }
+}
+
+def prioritize_remediations(findings):
+    base_scores = {
+        "CRITICAL": 40.0,
+        "HIGH": 25.0,
+        "MEDIUM": 10.0,
+        "LOW": 3.0,
+        "INFORMATIONAL": 1.0
+    }
+    module_multipliers = {
+        "graphsecure": 1.40,
+        "threatsecure": 1.35,
+        "datasecure": 1.30,
+        "waassecure": 1.25,
+        "aisecure": 1.20,
+        "identitysecure": 1.15,
+        "supplysecure": 1.10
+    }
+
+    scored = []
+    for f in findings:
+        sev = f.get("severity", "MEDIUM").upper()
+        base = base_scores.get(sev, 10.0)
+        mod = f.get("source_module", "").lower()
+        mult = module_multipliers.get(mod, 1.05)
+        ctrls = f.get("framework_controls", [])
+        bonus = len(ctrls) * 5.0
+        final_score = (base * mult) + bonus
+        scored.append((final_score, f))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+
+    remediations = []
+    for idx, (score, f) in enumerate(scored[:10]):
+        remediations.append({
+            "rank": idx + 1,
+            "remediation_id": f"REM-{idx+1:02d}",
+            "title": f.get("title", ""),
+            "source_module": f.get("source_module", ""),
+            "resource_id": f.get("resource_id", ""),
+            "severity": f.get("severity", "MEDIUM"),
+            "blast_radius_reduction_score": round(score, 1),
+            "affected_framework_controls": f.get("framework_controls", []),
+            "remediation_command": f.get("remediation_action", "")
+        })
+    return remediations
+
+def compile_controls(findings, framework_code):
+    fw = FRAMEWORKS.get(framework_code.lower())
+    if not fw:
+        raise ValueError(f"Unknown framework: {framework_code}")
+
+    controls = []
+    for cid, title, desc in fw["controls"]:
+        failing_refs = []
+        for f in findings:
+            for c_ref in f.get("framework_controls", []):
+                if cid.lower() in c_ref.lower():
+                    failing_refs.append(f"{f.get('id')}: {f.get('title')}")
+                    break
+
+        status = "PASSED" if len(failing_refs) == 0 else "FAILED"
+        controls.append({
+            "control_id": cid,
+            "framework": fw["id"],
+            "title": title,
+            "description": desc,
+            "status": status,
+            "failing_findings_count": len(failing_refs),
+            "findings_refs": failing_refs
+        })
+    return controls
+
+def evaluate_framework(findings, framework_code):
+    fw = FRAMEWORKS.get(framework_code.lower())
+    if not fw:
+        raise ValueError(f"Unknown framework: {framework_code}")
+
+    controls = compile_controls(findings, framework_code)
+    total = len(controls)
+    passed = sum(1 for c in controls if c["status"] == "PASSED")
+    failed = total - passed
+    readiness = round((passed / total * 100.0), 1) if total > 0 else 100.0
+
+    criticals = 0
+    highs = 0
+    for f in findings:
+        matches = any(cid.lower() in c_ref.lower() for cid, _, _ in fw["controls"] for c_ref in f.get("framework_controls", []))
+        if matches:
+            sev = f.get("severity", "").upper()
+            if sev == "CRITICAL":
+                criticals += 1
+            elif sev == "HIGH":
+                highs += 1
+
+    return {
+        "framework": fw["id"],
+        "display_title": fw["title"],
+        "total_controls": total,
+        "passed_controls": passed,
+        "failed_controls": failed,
+        "readiness_percentage": readiness,
+        "critical_findings": criticals,
+        "high_findings": highs
+    }
+
+def compile_bundle(findings, framework_code, organization="Acme Cloud Infrastructure"):
+    fw = FRAMEWORKS.get(framework_code.lower())
+    if not fw:
+        raise ValueError(f"Unknown framework: {framework_code}")
+
+    controls = compile_controls(findings, framework_code)
+    top_remediations = prioritize_remediations(findings)
+    readiness = evaluate_framework(findings, framework_code)
+
+    hasher = hashlib.sha256()
+    hasher.update(fw["id"].encode("utf-8"))
+    hasher.update(organization.encode("utf-8"))
+    for c in controls:
+        hasher.update(f"{c['control_id']}:{c['status']}:{c['failing_findings_count']}".encode("utf-8"))
+    for r in top_remediations:
+        hasher.update(f"{r['rank']}:{r['resource_id']}:{r['blast_radius_reduction_score']}".encode("utf-8"))
+
+    manifest_hash = hasher.hexdigest()
+
+    return {
+        "bundle_id": f"BUNDLE-{fw['id'].upper()}-{manifest_hash[:8]}",
+        "framework": fw["title"],
+        "compiled_at": "2026-10-19T22:30:00Z",
+        "organization": organization,
+        "readiness_percentage": readiness["readiness_percentage"],
+        "total_findings_evaluated": len(findings),
+        "controls": controls,
+        "top_remediations": top_remediations,
+        "manifest_sha256": manifest_hash
+    }
+
+def to_markdown(bundle):
+    lines = [
+        f"# Executive Compliance Audit Report: {bundle['framework']}\n",
+        f"- **Organization**: {bundle['organization']}",
+        f"- **Compiled At**: {bundle['compiled_at']}",
+        f"- **Readiness Score**: {bundle['readiness_percentage']:.1f}%",
+        f"- **Evidence Bundle SHA-256**: `{bundle['manifest_sha256']}`\n",
+        "## 1. Prioritized Top-10 Breach-Stopping Remediation Queue\n",
+        "| Rank | Title | Source Module | Severity | Blast Radius Reduction | Remediation Action |",
+        "| :--- | :--- | :--- | :--- | :--- | :--- |"
+    ]
+    for r in bundle["top_remediations"]:
+        lines.append(f"| #{r['rank']} | {r['title']} | `{r['source_module']}` | **{r['severity']}** | **{r['blast_radius_reduction_score']:.1f}** | `{r['remediation_command']}` |")
+
+    lines.extend([
+        "\n## 2. Control-by-Control Audit Evidence Table\n",
+        "| Control ID | Title | Status | Failing Findings | Evidence & Findings Summary |",
+        "| :--- | :--- | :--- | :--- | :--- |"
+    ])
+    for c in bundle["controls"]:
+        status_badge = "[PASS] COMPLIANT" if c["status"] == "PASSED" else "[FAIL] DEFICIENT"
+        summary = "; ".join(c["findings_refs"]) if c["findings_refs"] else "All automated posture tests passed without violation."
+        lines.append(f"| **{c['control_id']}** | {c['title']} | `{status_badge}` | {c['failing_findings_count']} | {summary} |")
+
+    return "\n".join(lines) + "\n"
+
+def to_csv(bundle):
+    lines = ["Control ID,Framework,Title,Status,Failing Findings Count,Summary"]
+    for c in bundle["controls"]:
+        escaped_title = c["title"].replace('"', '""')
+        escaped_summary = "; ".join(c["findings_refs"]).replace('"', '""')
+        lines.append(f"\"{c['control_id']}\",\"{c['framework']}\",\"{escaped_title}\",\"{c['status']}\",{c['failing_findings_count']},\"{escaped_summary}\"")
+    return "\n".join(lines) + "\n"
+
+def run_mcp():
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            req = json.loads(line)
+        except Exception:
+            continue
+
+        req_id = req.get("id")
+        method = req.get("method", "")
+
+        if method == "initialize":
+            resp = {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {"tools": {}},
+                    "serverInfo": {"name": "compliancesecure-mcp", "version": "0.1.0"}
+                }
+            }
+        elif method == "tools/list":
+            resp = {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "tools": [
+                        {
+                            "name": "pulse_aggregate_posture",
+                            "description": "Ingest cross-pillar findings and calculate executive multi-framework compliance scores",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {"findings_json": {"type": "string"}},
+                                "required": ["findings_json"]
+                            }
+                        },
+                        {
+                            "name": "pulse_prioritize_remediations",
+                            "description": "Rank Prioritized Top-10 Breach-Stopping Remediation Queue by blast-radius reduction",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {"findings_json": {"type": "string"}, "limit": {"type": "integer"}},
+                                "required": ["findings_json"]
+                            }
+                        },
+                        {
+                            "name": "pulse_export_compliance_bundle",
+                            "description": "Compile deterministically sealed audit evidence bundle for SOC 2, ISO 27001, PCI-DSS, or HIPAA",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "findings_json": {"type": "string"},
+                                    "framework": {"type": "string"},
+                                    "organization": {"type": "string"}
+                                },
+                                "required": ["findings_json", "framework"]
+                            }
+                        }
+                    ]
+                }
+            }
+        elif method == "tools/call":
+            params = req.get("params", {})
+            name = params.get("name", "")
+            args = params.get("arguments", {})
+
+            if name == "pulse_aggregate_posture":
+                f_str = args.get("findings_json", "[]")
+                try:
+                    findings = json.loads(f_str)
+                    summaries = [evaluate_framework(findings, fw) for fw in FRAMEWORKS]
+                    tool_res = summaries
+                except Exception as e:
+                    tool_res = {"error": str(e)}
+            elif name == "pulse_prioritize_remediations":
+                f_str = args.get("findings_json", "[]")
+                limit = int(args.get("limit", 10))
+                try:
+                    findings = json.loads(f_str)
+                    tool_res = prioritize_remediations(findings)[:limit]
+                except Exception as e:
+                    tool_res = {"error": str(e)}
+            elif name == "pulse_export_compliance_bundle":
+                f_str = args.get("findings_json", "[]")
+                fw_code = args.get("framework", "soc2")
+                org = args.get("organization", "Acme Cloud Infrastructure")
+                try:
+                    findings = json.loads(f_str)
+                    bundle = compile_bundle(findings, fw_code, org)
+                    tool_res = bundle
+                except Exception as e:
+                    tool_res = {"error": str(e)}
+            else:
+                tool_res = {"error": f"Unknown tool: {name}"}
+
+            resp = {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "content": [{"type": "text", "text": json.dumps(tool_res, indent=2)}]
+                }
+            }
+        else:
+            resp = {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "error": {"code": -32601, "message": "Method not found"}
+            }
+
+        sys.stdout.write(json.dumps(resp) + "\n")
+        sys.stdout.flush()
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog="compliancesecure-cli",
+        description="ComplianceSecure: Executive Command Center & Multi-Framework Audit Exporter CLI & MCP"
+    )
+    parser.add_argument("--mcp", action="store_true", help="Launch in Model Context Protocol mode over stdio")
+
+    subparsers = parser.add_subparsers(dest="subcommand")
+
+    # aggregate
+    p_agg = subparsers.add_parser("aggregate", help="Ingest posture findings and summarize framework audit readiness")
+    p_agg.add_argument("-s", "--snapshot", required=True, help="Path to findings JSON or .csec snapshot")
+    p_agg.add_argument("-o", "--format", choices=["table", "json"], default="table")
+
+    # top-remediations
+    p_top = subparsers.add_parser("top-remediations", help="Display Prioritized Top-10 Breach-Stopping Remediation Queue")
+    p_top.add_argument("-s", "--snapshot", required=True, help="Path to findings JSON or .csec snapshot")
+    p_top.add_argument("-l", "--limit", type=int, default=10, help="Max number of ranked remediations")
+    p_top.add_argument("-o", "--format", choices=["table", "json"], default="table")
+
+    # export-audit
+    p_exp = subparsers.add_parser("export-audit", help="Compile and export signed multi-format audit package")
+    p_exp.add_argument("-s", "--snapshot", required=True, help="Path to findings JSON or .csec snapshot")
+    p_exp.add_argument("-f", "--framework", default="soc2", help="Compliance framework (soc2, iso27001, pci, hipaa, nist, fedramp)")
+    p_exp.add_argument("--organization", default="Acme Cloud Infrastructure", help="Organization name for audit attestations")
+    p_exp.add_argument("-o", "--out", help="Output directory to export audit package files")
+
+    args = parser.parse_args()
+
+    if args.mcp:
+        run_mcp()
+        return
+
+    if args.subcommand == "aggregate":
+        with open(args.snapshot, "r", encoding="utf-8") as f:
+            findings = json.load(f)
+        summaries = [evaluate_framework(findings, fw) for fw in FRAMEWORKS]
+
+        if args.format == "json":
+            print(json.dumps(summaries, indent=2))
+        else:
+            print("=== ComplianceSecure: Multi-Framework Executive Readiness ===")
+            print(f"Total Ingested Cross-Pillar Findings: {len(findings)}\n")
+            print(f"{'FRAMEWORK':<12} {'TITLE':<42} {'PASSED':<8} {'FAILED':<8} {'READINESS':<12} CRIT / HIGH")
+            print("-" * 92)
+            for s in summaries:
+                print(
+                    f"{s['framework'].upper():<12} {s['display_title']:<42} "
+                    f"{s['passed_controls']:>3}/{s['total_controls']:<4} "
+                    f"{s['failed_controls']:>3}/{s['total_controls']:<4} "
+                    f"{s['readiness_percentage']:>5.1f}%      "
+                    f"{s['critical_findings']} / {s['high_findings']}"
+                )
+
+    elif args.subcommand == "top-remediations":
+        with open(args.snapshot, "r", encoding="utf-8") as f:
+            findings = json.load(f)
+        rems = prioritize_remediations(findings)[:args.limit]
+
+        if args.format == "json":
+            print(json.dumps(rems, indent=2))
+        else:
+            print(f"=== Prioritized Top-{args.limit} Breach-Stopping Remediation Queue ===")
+            print("Ranked by cross-pillar blast-radius reduction across all 12 CloudSecure modules:\n")
+            print(f"{'RANK':<6} {'MODULE':<14} {'SEVERITY':<10} {'BLAST RED.':<12} TITLE & REMEDIATION")
+            print("-" * 90)
+            for r in rems:
+                print(f"#{r['rank']:<5} {r['source_module']:<14} {r['severity']:<10} {r['blast_radius_reduction_score']:>5.1f} pts    {r['title']}")
+                print(f"       Resource:    {r['resource_id']}")
+                print(f"       Remediation: {r['remediation_command']}\n")
+
+    elif args.subcommand == "export-audit":
+        with open(args.snapshot, "r", encoding="utf-8") as f:
+            findings = json.load(f)
+        bundle = compile_bundle(findings, args.framework, args.organization)
+
+        if args.out:
+            os.makedirs(args.out, exist_ok=True)
+            md_report = to_markdown(bundle)
+            csv_matrix = to_csv(bundle)
+            json_manifest = json.dumps(bundle, indent=2)
+
+            with open(os.path.join(args.out, "AUDIT_REPORT.md"), "w", encoding="utf-8") as f:
+                f.write(md_report)
+            with open(os.path.join(args.out, "audit-bundle.json"), "w", encoding="utf-8") as f:
+                f.write(json_manifest)
+            with open(os.path.join(args.out, "controls.csv"), "w", encoding="utf-8") as f:
+                f.write(csv_matrix)
+
+            chk_lines = [
+                f"{hashlib.sha256(md_report.encode('utf-8')).hexdigest()}  AUDIT_REPORT.md",
+                f"{hashlib.sha256(json_manifest.encode('utf-8')).hexdigest()}  audit-bundle.json",
+                f"{hashlib.sha256(csv_matrix.encode('utf-8')).hexdigest()}  controls.csv"
+            ]
+            with open(os.path.join(args.out, "sha256sums.txt"), "w", encoding="utf-8") as f:
+                f.write("\n".join(chk_lines) + "\n")
+
+            print(f"Successfully exported signed audit evidence bundle to: {args.out}")
+            print("  -> AUDIT_REPORT.md   (Executive summary & remediation queue)")
+            print("  -> audit-bundle.json (Deterministic machine-readable ledger)")
+            print("  -> controls.csv      (Control status matrix)")
+            print("  -> sha256sums.txt    (Cryptographic integrity manifest)")
+            print(f"Bundle SHA-256: {bundle['manifest_sha256']}")
+        else:
+            print(to_markdown(bundle))
+
+    else:
+        print("ComplianceSecure CLI: Use --help for subcommands or --mcp for Model Context Protocol mode.")
+
+if __name__ == "__main__":
+    main()

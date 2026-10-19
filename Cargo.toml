@@ -32,6 +32,8 @@ members = [
     "apps/supplysecure-cli",
     "apps/policysecure",
     "apps/policysecure-cli",
+    "apps/compliancesecure",
+    "apps/compliancesecure-cli",
 ]
 
 [workspace.package]
