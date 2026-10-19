@@ -1,0 +1,29 @@
+[
+  {
+    "artifact_uri": "registry.internal.net/billing-service:v2.1.0",
+    "digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "is_signed": true,
+    "signature_algorithm": "ECDSA_P256_SHA256",
+    "certificate_identity": "https://github.com/my-org/billing-service/.github/workflows/build.yml@refs/heads/main",
+    "oidc_issuer": "https://token.actions.githubusercontent.com",
+    "rekor_log_entry": 10928374
+  },
+  {
+    "artifact_uri": "registry.internal.net/unverified-sidecar:latest",
+    "digest": "sha256:8f434346648f6b96df89dda901c5176b10f6005261fc0cf244e4736da2fa44a0",
+    "is_signed": false,
+    "signature_algorithm": null,
+    "certificate_identity": null,
+    "oidc_issuer": null,
+    "rekor_log_entry": null
+  },
+  {
+    "artifact_uri": "registry.internal.net/shadow-microservice:v1.2",
+    "digest": "sha256:2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+    "is_signed": true,
+    "signature_algorithm": "ECDSA_P256_SHA256",
+    "certificate_identity": "dev-laptop@corp.internal",
+    "oidc_issuer": null,
+    "rekor_log_entry": null
+  }
+]

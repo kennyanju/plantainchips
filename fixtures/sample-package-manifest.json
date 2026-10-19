@@ -1,0 +1,30 @@
+[
+  {
+    "name": "internal-auth-token-signer",
+    "version": "1.0.0",
+    "registry": "npm",
+    "is_internal_scope": true,
+    "found_on_public_registry": true
+  },
+  {
+    "name": "reqeusts",
+    "version": "2.31.0",
+    "registry": "pypi",
+    "is_internal_scope": false,
+    "found_on_public_registry": true
+  },
+  {
+    "name": "lodas-es",
+    "version": "4.17.21",
+    "registry": "npm",
+    "is_internal_scope": false,
+    "found_on_public_registry": true
+  },
+  {
+    "name": "react",
+    "version": "18.3.1",
+    "registry": "npm",
+    "is_internal_scope": false,
+    "found_on_public_registry": true
+  }
+]
