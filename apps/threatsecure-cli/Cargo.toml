@@ -1,0 +1,23 @@
+[package]
+name = "threatsecure-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "threatsecure-cli"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+threatsecure = { path = "../threatsecure" }
+cloudsecure-types = { path = "../../crates/cloudsecure-types" }
+cloudsecure-automation = { path = "../../crates/cloudsecure-automation" }
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }

@@ -1,0 +1,400 @@
+#!/usr/bin/env python3
+import sys, os, json, argparse, hashlib
+
+def principal_identifier(event):
+    u = event.get("user_identity", {})
+    if u:
+        if u.get("arn"):
+            return u["arn"]
+        if u.get("user_name"):
+            return u["user_name"]
+        if u.get("principal_id"):
+            return u["principal_id"]
+    return event.get("source_ip_address", "unknown")
+
+def evaluate_event(event):
+    detections = []
+    principal = principal_identifier(event)
+    src_ip = event.get("source_ip_address", "127.0.0.1")
+    ev_time = event.get("event_time", "")
+    ev_name = event.get("event_name", "")
+    ev_id = event.get("event_id", "")
+    req_params = event.get("request_parameters") or {}
+    resp_elements = event.get("response_elements") or {}
+
+    params_str = json.dumps(req_params)
+    resp_str = json.dumps(resp_elements)
+
+    # 1. T1562.008 Impair Defenses: Disable Cloud Logs (TA0005 Defense Evasion)
+    if ev_name in ("StopLogging", "DeleteTrail", "DeleteDetector") or (
+        ev_name == "UpdateTrail" and '"isMultiRegionTrail": false' in params_str
+    ):
+        trail_name = req_params.get("name") or req_params.get("trailName") or "arn:aws:cloudtrail:us-east-1:123456789012:trail/main"
+        detections.append({
+            "detection_id": f"DET-{ev_id}",
+            "event_id": ev_id,
+            "rule_id": "CDR-AWS-001",
+            "technique_id": "T1562.008",
+            "technique_name": "Impair Defenses: Disable Cloud Logs",
+            "tactic": "Defense Evasion",
+            "severity": "CRITICAL",
+            "title": "CloudTrail Logging Disabled or Tampered",
+            "description": f"Adversary disabled or deleted audit trail '{trail_name}' to conceal malicious activities.",
+            "principal_arn": principal,
+            "source_ip": src_ip,
+            "event_time": ev_time,
+            "evidence_detail": f"Event '{ev_name}' executed on trail '{trail_name}'",
+            "containment_action": f"aws cloudtrail start-logging --name {trail_name}"
+        })
+
+    # 2. T1098.001 Account Manipulation: Additional Cloud Credentials (TA0003 Persistence)
+    if ev_name == "CreateAccessKey":
+        target_user = req_params.get("userName", "unknown")
+        detections.append({
+            "detection_id": f"DET-{ev_id}",
+            "event_id": ev_id,
+            "rule_id": "CDR-AWS-002",
+            "technique_id": "T1098.001",
+            "technique_name": "Account Manipulation: Additional Cloud Credentials",
+            "tactic": "Persistence",
+            "severity": "HIGH",
+            "title": "New IAM Long-Term Access Key Generated",
+            "description": f"Long-term programmatic access key created for user '{target_user}' by principal '{principal}'.",
+            "principal_arn": principal,
+            "source_ip": src_ip,
+            "event_time": ev_time,
+            "evidence_detail": f"CreateAccessKey invoked for target user '{target_user}'",
+            "containment_action": f"aws iam update-access-key --user-name {target_user} --status Inactive"
+        })
+
+    # 3. T1098 Account Manipulation: Administrator Privilege Grant (TA0004 Privilege Escalation)
+    if ev_name in ("AttachUserPolicy", "AttachRolePolicy", "PutUserPolicy", "PutRolePolicy"):
+        if "AdministratorAccess" in params_str or '"*"' in params_str:
+            detections.append({
+                "detection_id": f"DET-{ev_id}",
+                "event_id": ev_id,
+                "rule_id": "CDR-AWS-003",
+                "technique_id": "T1098",
+                "technique_name": "Account Manipulation: Privilege Escalation",
+                "tactic": "Privilege Escalation",
+                "severity": "CRITICAL",
+                "title": "Administrator Privileges Granted to IAM Principal",
+                "description": f"Principal '{principal}' escalated privileges by attaching administrative policy.",
+                "principal_arn": principal,
+                "source_ip": src_ip,
+                "event_time": ev_time,
+                "evidence_detail": f"Event '{ev_name}' with policy parameters '{params_str}'",
+                "containment_action": "aws iam put-user-policy --policy-name DenyAll --policy-document '{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Deny\",\"Action\":\"*\",\"Resource\":\"*\"}]}'"
+            })
+
+    # 4. T1078.004 Valid Accounts: Cloud Accounts (TA0001 Initial Access)
+    if ev_name == "ConsoleLogin":
+        mfa_success = resp_elements.get("ConsoleLogin") == "Success"
+        is_mfa_no = '"MFAUsed": "No"' in params_str or '"mfa": false' in params_str or '"MFAUsed":"No"' in params_str
+        if mfa_success and is_mfa_no:
+            detections.append({
+                "detection_id": f"DET-{ev_id}",
+                "event_id": ev_id,
+                "rule_id": "CDR-AWS-004",
+                "technique_id": "T1078.004",
+                "technique_name": "Valid Accounts: Cloud Accounts",
+                "tactic": "Initial Access",
+                "severity": "HIGH",
+                "title": "Console Login Succeeded Without Multi-Factor Authentication (MFA)",
+                "description": f"Console session established for '{principal}' from '{src_ip}' without requiring MFA verification.",
+                "principal_arn": principal,
+                "source_ip": src_ip,
+                "event_time": ev_time,
+                "evidence_detail": f"ConsoleLogin from IP '{src_ip}' with MFAUsed='No'",
+                "containment_action": "aws iam attach-user-policy --policy-arn arn:aws:iam::aws:policy/DenyAllExceptSelfManagement"
+            })
+
+    # 5. T1537 Transfer Data to Cloud Account (TA0010 Exfiltration)
+    if ev_name in ("ModifyImageAttribute", "ModifySnapshotAttribute", "PutBucketAcl"):
+        if '"all"' in params_str or "public-read" in params_str or '"Group": "all"' in params_str:
+            detections.append({
+                "detection_id": f"DET-{ev_id}",
+                "event_id": ev_id,
+                "rule_id": "CDR-AWS-006",
+                "technique_id": "T1537",
+                "technique_name": "Transfer Data to Cloud Account: Exfiltration",
+                "tactic": "Exfiltration",
+                "severity": "CRITICAL",
+                "title": "Snapshot or Storage Object Shared Externally or Publicly",
+                "description": "Adversary modified resource permissions to permit external or global public access.",
+                "principal_arn": principal,
+                "source_ip": src_ip,
+                "event_time": ev_time,
+                "evidence_detail": f"Event '{ev_name}' with public sharing parameters: '{params_str}'",
+                "containment_action": "aws ec2 modify-snapshot-attribute --attribute createVolumePermission --operation-type remove --group-names all"
+            })
+
+    # 6. T1485 Data Destruction (TA0040 Impact)
+    if ev_name in ("DeleteBucket", "DeleteVolume", "DeleteDBCluster"):
+        detections.append({
+            "detection_id": f"DET-{ev_id}",
+            "event_id": ev_id,
+            "rule_id": "CDR-AWS-007",
+            "technique_id": "T1485",
+            "technique_name": "Data Destruction",
+            "tactic": "Impact",
+            "severity": "HIGH",
+            "title": "Destructive Cloud Storage or Database Deletion",
+            "description": f"Resource deletion event '{ev_name}' executed by principal '{principal}'.",
+            "principal_arn": principal,
+            "source_ip": src_ip,
+            "event_time": ev_time,
+            "evidence_detail": f"Destructive API call '{ev_name}' completed",
+            "containment_action": "aws iam put-user-policy --policy-name DenyDestructiveActions --policy-document '{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Deny\",\"Action\":[\"s3:Delete*\",\"ec2:Delete*\",\"rds:Delete*\"],\"Resource\":\"*\"}]}'"
+        })
+
+    return detections
+
+def correlate_kill_chains(detections):
+    grouped = {}
+    for d in detections:
+        p = d["principal_arn"]
+        if p not in grouped:
+            grouped[p] = []
+        grouped[p].append(d)
+
+    incidents = []
+    for principal, dets in grouped.items():
+        tactics_set = sorted(list({d["tactic"] for d in dets}))
+        tech_set = sorted(list({d["technique_id"] for d in dets}))
+        times = sorted([d["event_time"] for d in dets])
+        src_ip = dets[0]["source_ip"]
+        actions = [d["containment_action"] for d in dets]
+
+        t_count = len(tactics_set)
+        if t_count == 1:
+            confidence = 0.65
+        elif t_count == 2:
+            confidence = 0.85
+        else:
+            confidence = 0.98
+
+        inc_hash = hashlib.sha256(principal.encode("utf-8")).hexdigest()[:10]
+        incidents.append({
+            "incident_id": f"INC-{inc_hash}",
+            "principal_arn": principal,
+            "source_ip": src_ip,
+            "start_time": times[0] if times else "",
+            "end_time": times[-1] if times else "",
+            "tactics_observed": tactics_set,
+            "techniques_observed": tech_set,
+            "event_count": len(dets),
+            "detections": dets,
+            "confidence_score": confidence,
+            "status": "ACTIVE",
+            "recommended_containment": actions
+        })
+
+    incidents.sort(key=lambda x: x["confidence_score"], reverse=True)
+    return incidents
+
+def run_mcp():
+    for line in sys.stdin:
+        if not line.strip():
+            continue
+        try:
+            req = json.loads(line)
+        except Exception:
+            continue
+        req_id = req.get("id")
+        method = req.get("method")
+
+        if method == "initialize":
+            resp = {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {"tools": {}},
+                    "serverInfo": {"name": "threatsecure-mcp", "version": "0.1.0"}
+                }
+            }
+        elif method == "tools/list":
+            resp = {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "tools": [
+                        {
+                            "name": "cdr_detect_threats",
+                            "description": "Inspect multi-cloud audit log events against MITRE ATT&CK Cloud techniques (T1562, T1098, T1078, T1537, T1485)",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {"events_json": {"type": "string"}},
+                                "required": ["events_json"]
+                            }
+                        },
+                        {
+                            "name": "cdr_correlate_kill_chains",
+                            "description": "Correlate discrete audit log detections into unified multi-stage attack incidents and kill chains",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {"events_json": {"type": "string"}},
+                                "required": ["events_json"]
+                            }
+                        },
+                        {
+                            "name": "cdr_generate_containment",
+                            "description": "Generate automated cloud CLI commands to isolate compromised principals and stop exfiltration",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {"events_json": {"type": "string"}},
+                                "required": ["events_json"]
+                            }
+                        }
+                    ]
+                }
+            }
+        elif method == "tools/call":
+            params = req.get("params", {})
+            name = params.get("name")
+            args = params.get("arguments", {})
+
+            if name == "cdr_detect_threats":
+                events_raw = args.get("events_json", "[]")
+                try:
+                    events = json.loads(events_raw)
+                    all_dets = []
+                    for ev in events:
+                        all_dets.extend(evaluate_event(ev))
+                    tool_res = {
+                        "events_scanned": len(events),
+                        "detections_count": len(all_dets),
+                        "detections": all_dets
+                    }
+                except Exception as e:
+                    tool_res = {"error": str(e)}
+
+            elif name == "cdr_correlate_kill_chains":
+                events_raw = args.get("events_json", "[]")
+                try:
+                    events = json.loads(events_raw)
+                    all_dets = []
+                    for ev in events:
+                        all_dets.extend(evaluate_event(ev))
+                    incidents = correlate_kill_chains(all_dets)
+                    tool_res = {
+                        "incidents_count": len(incidents),
+                        "incidents": incidents
+                    }
+                except Exception as e:
+                    tool_res = {"error": str(e)}
+
+            elif name == "cdr_generate_containment":
+                events_raw = args.get("events_json", "[]")
+                try:
+                    events = json.loads(events_raw)
+                    actions = []
+                    for ev in events:
+                        for d in evaluate_event(ev):
+                            actions.append({
+                                "detection_id": d["detection_id"],
+                                "principal": d["principal_arn"],
+                                "action": d["containment_action"]
+                            })
+                    tool_res = {
+                        "containment_actions_count": len(actions),
+                        "actions": actions
+                    }
+                except Exception as e:
+                    tool_res = {"error": str(e)}
+            else:
+                tool_res = {"error": f"Unknown tool: {name}"}
+
+            resp = {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "content": [{"type": "text", "text": json.dumps(tool_res, indent=2)}]
+                }
+            }
+        else:
+            resp = {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": "Method not found"}}
+
+        sys.stdout.write(json.dumps(resp) + "\n")
+        sys.stdout.flush()
+
+def main():
+    parser = argparse.ArgumentParser(description="ThreatSecure CLI: Cloud Detection & Response (CDR) Engine")
+    parser.add_argument("--mcp", action="store_true", help="Run Model Context Protocol stdio server")
+    subparsers = parser.add_subparsers(dest="subcommand")
+
+    detect_p = subparsers.add_parser("detect", help="Inspect audit log events against MITRE ATT&CK techniques")
+    detect_p.add_argument("--events", "-e", required=True, help="Path to audit events JSON stream")
+    detect_p.add_argument("--format", "-f", choices=["table", "json", "sarif", "csv"], default="table")
+
+    corr_p = subparsers.add_parser("correlate", help="Correlate detections into attack incidents")
+    corr_p.add_argument("--events", "-e", required=True, help="Path to audit events JSON stream")
+
+    args = parser.parse_args()
+    if args.mcp:
+        run_mcp()
+        return
+
+    if args.subcommand == "detect":
+        with open(args.events, "r", encoding="utf-8") as f:
+            events = json.load(f)
+        all_dets = []
+        for ev in events:
+            all_dets.extend(evaluate_event(ev))
+
+        if args.format == "table":
+            print(f"{'SEVERITY':<10} {'RULE ID':<14} {'PRINCIPAL':<38} {'TITLE'}")
+            print("-" * 105)
+            for d in all_dets:
+                glyph = "[!]" if d["severity"] == "CRITICAL" else "[/!\\]"
+                princ = d["principal_arn"] if len(d["principal_arn"]) <= 36 else d["principal_arn"][:33] + "..."
+                title = d["title"] if len(d["title"]) <= 42 else d["title"][:39] + "..."
+                print(f"{glyph + ' ' + d['severity']:<10} {d['rule_id']:<14} {princ:<38} {title}")
+            print("-" * 105)
+            print(f"Total MITRE ATT&CK Cloud Detections: {len(all_dets)}")
+        elif args.format == "json":
+            print(json.dumps(all_dets, indent=2))
+        elif args.format == "sarif":
+            sarif = {
+                "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+                "version": "2.1.0",
+                "runs": [{
+                    "tool": {"driver": {"name": "ThreatSecure", "version": "0.1.0"}},
+                    "results": [{
+                        "ruleId": d["rule_id"],
+                        "level": "error" if d["severity"] == "CRITICAL" else "warning",
+                        "message": {"text": d["title"]}
+                    } for d in all_dets]
+                }]
+            }
+            print(json.dumps(sarif, indent=2))
+        elif args.format == "csv":
+            print("Severity,RuleId,Principal,Title,Message")
+            for d in all_dets:
+                print(f"{d['severity']},{d['rule_id']},{d['principal_arn']},\"{d['title']}\",\"{d['description']}\"")
+
+        if any(d["severity"] == "CRITICAL" for d in all_dets):
+            sys.exit(1)
+
+    elif args.subcommand == "correlate":
+        with open(args.events, "r", encoding="utf-8") as f:
+            events = json.load(f)
+        all_dets = []
+        for ev in events:
+            all_dets.extend(evaluate_event(ev))
+        incidents = correlate_kill_chains(all_dets)
+
+        print(f"{'INCIDENT ID':<12} {'PRINCIPAL':<36} {'CONFIDENCE':<12} {'EVENTS':<10} {'TACTICS OBSERVED'}")
+        print("-" * 105)
+        for inc in incidents:
+            tactics_str = " -> ".join(inc["tactics_observed"])
+            princ = inc["principal_arn"] if len(inc["principal_arn"]) <= 34 else inc["principal_arn"][:31] + "..."
+            print(f"{inc['incident_id']:<12} {princ:<36} {inc['confidence_score']:<12.2f} {inc['event_count']:<10} {tactics_str}")
+        print("-" * 105)
+        print(f"Total Correlated Incidents: {len(incidents)}")
+    else:
+        parser.print_help()
+
+if __name__ == "__main__":
+    main()
