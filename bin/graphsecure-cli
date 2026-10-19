@@ -1,0 +1,307 @@
+#!/usr/bin/env python3
+import sys, os, json, argparse, collections
+
+def find_attack_paths(graph, active_edges=None):
+    nodes = {n["id"]: n for n in graph.get("nodes", [])}
+    edges = graph.get("edges", [])
+    
+    if active_edges is None:
+        active_edge_ids = {e["id"] for e in edges if e.get("is_active", True)}
+    else:
+        active_edge_ids = set(active_edges)
+
+    adj = collections.defaultdict(list)
+    for e in edges:
+        if e["id"] in active_edge_ids:
+            adj[e["source"]].append((e["target"], e["id"], e.get("risk_weight", 1.0)))
+
+    entry_points = [n for n in nodes.values() if n.get("is_internet_exposed") or n.get("node_type") == "internet"]
+    paths = []
+
+    for entry in entry_points:
+        queue = collections.deque([( [entry["id"]], [], 1.0 )])
+        while queue:
+            curr_hops, curr_edges, risk = queue.popleft()
+            last_id = curr_hops[-1]
+            last_node = nodes.get(last_id)
+            if not last_node:
+                continue
+
+            if last_node.get("is_crown_jewel") and len(curr_hops) > 1:
+                path_id = f"PATH-{len(paths) + 1}"
+                sev = "CRITICAL" if risk >= 3.0 or last_node.get("cves") else "HIGH"
+                paths.append({
+                    "id": path_id,
+                    "title": f"Toxic Path: {entry['name']} -> {last_node['name']} ({len(curr_hops)} hops)",
+                    "hops": curr_hops,
+                    "edges": curr_edges,
+                    "cumulative_risk_score": round(risk, 2),
+                    "severity": sev,
+                    "description": f"Breach path traversing {' -> '.join(curr_hops)} to compromise crown jewel asset '{last_node['name']}'."
+                })
+                continue
+
+            if len(curr_hops) > 8:
+                continue
+
+            for next_id, edge_id, weight in adj.get(last_id, []):
+                if next_id not in curr_hops:
+                    next_node = nodes.get(next_id, {})
+                    node_risk = len(next_node.get("cves", [])) * 1.5 + len(next_node.get("misconfigurations", [])) * 1.0
+                    queue.append((curr_hops + [next_id], curr_edges + [edge_id], risk + weight + node_risk))
+
+    return paths
+
+def compute_choke_points(graph, paths):
+    if not paths:
+        return []
+    total_paths = len(paths)
+    edge_counts = collections.defaultdict(int)
+    for p in paths:
+        seen = set()
+        for e in p["edges"]:
+            if e not in seen:
+                edge_counts[e] += 1
+                seen.add(e)
+
+    edges_by_id = {e["id"]: e for e in graph.get("edges", [])}
+    choke_points = []
+    for edge_id, count in edge_counts.items():
+        edge = edges_by_id.get(edge_id, {})
+        roi = round((count / total_paths) * 100.0, 1)
+        hcl = edge.get("remediation_action") or f"""# Choke point remediation for edge {edge_id}
+resource "aws_security_group_rule" "revoke_{edge_id}" {{
+  type        = "ingress"
+  from_port   = 0
+  to_port     = 0
+  protocol    = "-1"
+  cidr_blocks = []
+}}"""
+        choke_points.append({
+            "edge_id": edge_id,
+            "source_node": edge.get("source", ""),
+            "target_node": edge.get("target", ""),
+            "paths_severed_count": count,
+            "roi_percentage": roi,
+            "remediation_hcl": hcl
+        })
+    choke_points.sort(key=lambda x: x["paths_severed_count"], reverse=True)
+    return choke_points
+
+def run_mcp():
+    for line in sys.stdin:
+        if not line.strip():
+            continue
+        try:
+            req = json.loads(line)
+        except Exception:
+            continue
+        req_id = req.get("id")
+        method = req.get("method")
+        
+        if method == "initialize":
+            resp = {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {"tools": {}},
+                    "serverInfo": {"name": "graphsecure-mcp", "version": "0.1.0"}
+                }
+            }
+        elif method == "tools/list":
+            resp = {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "tools": [
+                        {
+                            "name": "graph_find_attack_paths",
+                            "description": "Discover all multi-hop breach paths from Internet exposure to Crown Jewel assets",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {"graph_json": {"type": "string"}},
+                                "required": ["graph_json"]
+                            }
+                        },
+                        {
+                            "name": "graph_compute_choke_points",
+                            "description": "Compute betweenness centrality and rank choke points by number of breach paths severed",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {"graph_json": {"type": "string"}},
+                                "required": ["graph_json"]
+                            }
+                        },
+                        {
+                            "name": "graph_simulate_remediation",
+                            "description": "Simulate severing an attack path edge to calculate attack surface reduction ROI",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "graph_json": {"type": "string"},
+                                    "cut_edge": {"type": "string"}
+                                },
+                                "required": ["graph_json", "cut_edge"]
+                            }
+                        }
+                    ]
+                }
+            }
+        elif method == "tools/call":
+            params = req.get("params", {})
+            name = params.get("name")
+            args = params.get("arguments", {})
+            if name == "graph_find_attack_paths":
+                raw_json = args.get("graph_json", "{}")
+                try:
+                    graph = json.loads(raw_json)
+                    paths = find_attack_paths(graph)
+                    tool_res = {"paths_count": len(paths), "paths": paths}
+                except Exception as e:
+                    tool_res = {"error": str(e)}
+            elif name == "graph_compute_choke_points":
+                raw_json = args.get("graph_json", "{}")
+                try:
+                    graph = json.loads(raw_json)
+                    paths = find_attack_paths(graph)
+                    choke_points = compute_choke_points(graph, paths)
+                    tool_res = {"choke_points_count": len(choke_points), "choke_points": choke_points}
+                except Exception as e:
+                    tool_res = {"error": str(e)}
+            elif name == "graph_simulate_remediation":
+                raw_json = args.get("graph_json", "{}")
+                cut_edge = args.get("cut_edge", "")
+                try:
+                    graph = json.loads(raw_json)
+                    initial_paths = find_attack_paths(graph)
+                    before = len(initial_paths)
+                    remaining_edges = [e["id"] for e in graph.get("edges", []) if e["id"] != cut_edge]
+                    after_paths = find_attack_paths(graph, active_edges=remaining_edges)
+                    after = len(after_paths)
+                    severed = max(0, before - after)
+                    roi = round((severed / before) * 100.0, 1) if before > 0 else 0.0
+                    tool_res = {
+                        "cut_edge": cut_edge,
+                        "before_paths": before,
+                        "after_paths": after,
+                        "paths_severed": severed,
+                        "reduction_percentage": roi
+                    }
+                except Exception as e:
+                    tool_res = {"error": str(e)}
+            else:
+                tool_res = {"error": f"Unknown tool: {name}"}
+
+            resp = {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "content": [{"type": "text", "text": json.dumps(tool_res, indent=2)}]
+                }
+            }
+        else:
+            resp = {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": "Method not found"}}
+
+        sys.stdout.write(json.dumps(resp) + "\n")
+        sys.stdout.flush()
+
+def main():
+    parser = argparse.ArgumentParser(description="GraphSecure CLI: Cloud Security Graph & Attack Path Simulator")
+    parser.add_argument("--mcp", action="store_true", help="Run Model Context Protocol stdio server")
+    subparsers = parser.add_subparsers(dest="subcommand")
+
+    paths_p = subparsers.add_parser("paths", help="Discover attack paths")
+    paths_p.add_argument("--input", "-i", required=True, help="Path to graph JSON file")
+    paths_p.add_argument("--format", "-f", choices=["table", "json", "sarif", "csv"], default="table")
+
+    choke_p = subparsers.add_parser("choke-points", help="Rank remediation choke points")
+    choke_p.add_argument("--input", "-i", required=True, help="Path to graph JSON file")
+    choke_p.add_argument("--format", "-f", choices=["table", "json", "csv"], default="table")
+
+    sim_p = subparsers.add_parser("simulate", help="Simulate What-If edge remediation")
+    sim_p.add_argument("--input", "-i", required=True, help="Path to graph JSON file")
+    sim_p.add_argument("--cut-edge", "-e", required=True, help="Edge ID to sever/remediate")
+
+    args = parser.parse_args()
+    if args.mcp:
+        run_mcp()
+        return
+
+    if args.subcommand == "paths":
+        with open(args.input, "r", encoding="utf-8") as f:
+            graph = json.load(f)
+        paths = find_attack_paths(graph)
+
+        if args.format == "table":
+            print(f"{'SEVERITY':<10} {'PATH ID':<12} {'HOPS':<6} {'TITLE':<42} {'TERMINAL ASSET'}")
+            print("-" * 105)
+            for p in paths:
+                glyph = "[!]" if p["severity"] == "CRITICAL" else "[/!\\]"
+                term = p["hops"][-1]
+                title = p["title"] if len(p["title"]) <= 42 else p["title"][:39] + "..."
+                print(f"{glyph + ' ' + p['severity']:<10} {p['id']:<12} {len(p['hops']):<6} {title:<42} {term}")
+            print("-" * 105)
+            print(f"Total Viable Attack Paths: {len(paths)}")
+        elif args.format == "json":
+            print(json.dumps(paths, indent=2))
+        elif args.format == "csv":
+            print("Severity,PathId,HopCount,RiskScore,HopsSequence,Title")
+            for p in paths:
+                print(f"{p['severity']},{p['id']},{len(p['hops'])},{p['cumulative_risk_score']},\"{' -> '.join(p['hops'])}\",\"{p['title']}\"")
+        elif args.format == "sarif":
+            sarif = {
+                "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+                "version": "2.1.0",
+                "runs": [{
+                    "tool": {"driver": {"name": "GraphSecure", "version": "0.1.0"}},
+                    "results": [{
+                        "ruleId": "GRAPH-TOXIC-001",
+                        "level": "error" if p["severity"] == "CRITICAL" else "warning",
+                        "message": {"text": p["description"]}
+                    } for p in paths]
+                }]
+            }
+            print(json.dumps(sarif, indent=2))
+
+    elif args.subcommand == "choke-points":
+        with open(args.input, "r", encoding="utf-8") as f:
+            graph = json.load(f)
+        paths = find_attack_paths(graph)
+        choke_points = compute_choke_points(graph, paths)
+
+        if args.format == "table":
+            print(f"{'RANK':<4} {'EDGE ID':<18} {'SOURCE NODE':<22} {'TARGET NODE':<22} {'PATHS SEVERED':<14} {'ROI %'}")
+            print("-" * 100)
+            for idx, cp in enumerate(choke_points):
+                print(f"{idx + 1:<4} {cp['edge_id']:<18} {cp['source_node']:<22} {cp['target_node']:<22} {cp['paths_severed_count']:<14} {cp['roi_percentage']:.1f}%")
+            print("-" * 100)
+            print(f"Total Remediation Choke Points: {len(choke_points)}")
+        elif args.format == "json":
+            print(json.dumps(choke_points, indent=2))
+        elif args.format == "csv":
+            print("Rank,EdgeId,SourceNode,TargetNode,PathsSevered,RoiPercentage")
+            for idx, cp in enumerate(choke_points):
+                print(f"{idx + 1},{cp['edge_id']},{cp['source_node']},{cp['target_node']},{cp['paths_severed_count']},{cp['roi_percentage']:.1f}")
+
+    elif args.subcommand == "simulate":
+        with open(args.input, "r", encoding="utf-8") as f:
+            graph = json.load(f)
+        before_paths = find_attack_paths(graph)
+        before = len(before_paths)
+        remaining = [e["id"] for e in graph.get("edges", []) if e["id"] != args.cut_edge]
+        after_paths = find_attack_paths(graph, active_edges=remaining)
+        after = len(after_paths)
+        severed = max(0, before - after)
+        roi = round((severed / before) * 100.0, 1) if before > 0 else 0.0
+
+        print(f"What-If Remediation Simulation Result for Edge '{args.cut_edge}':")
+        print(f"  - Initial Viable Attack Paths : {before}")
+        print(f"  - Attack Paths Severed        : {severed}")
+        print(f"  - Remaining Attack Paths      : {after}")
+        print(f"  - Attack Surface Reduction    : {roi:.1f}%")
+    else:
+        parser.print_help()
+
+if __name__ == "__main__":
+    main()

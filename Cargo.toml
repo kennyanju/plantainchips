@@ -12,6 +12,8 @@ members = [
     "apps/datasecure-cli",
     "apps/launchersecure",
     "apps/launchersecure-cli",
+    "apps/graphsecure",
+    "apps/graphsecure-cli",
 ]
 
 [workspace.package]

@@ -1,0 +1,177 @@
+{
+  "nodes": [
+    {
+      "id": "node-internet",
+      "name": "Public Internet",
+      "node_type": "internet",
+      "provider": "aws",
+      "is_internet_exposed": true,
+      "is_crown_jewel": false,
+      "cves": [],
+      "misconfigurations": []
+    },
+    {
+      "id": "node-alb-prod",
+      "name": "prod-public-alb",
+      "node_type": "load-balancer",
+      "provider": "aws",
+      "is_internet_exposed": true,
+      "is_crown_jewel": false,
+      "cves": [],
+      "misconfigurations": ["InsecureCipherSuite"]
+    },
+    {
+      "id": "node-frontend-pod",
+      "name": "ecommerce-frontend-pod",
+      "node_type": "container",
+      "provider": "aws",
+      "is_internet_exposed": false,
+      "is_crown_jewel": false,
+      "cves": ["CVE-2024-41110"],
+      "misconfigurations": ["PrivilegedContainer"]
+    },
+    {
+      "id": "node-bastion-vm",
+      "name": "bastion-host-ec2",
+      "node_type": "compute-instance",
+      "provider": "aws",
+      "is_internet_exposed": true,
+      "is_crown_jewel": false,
+      "cves": [],
+      "misconfigurations": ["SSH_Ingress_0.0.0.0/0", "IMDSv1_Enabled"]
+    },
+    {
+      "id": "node-eks-node",
+      "name": "eks-cluster-worker-pool",
+      "node_type": "compute-instance",
+      "provider": "aws",
+      "is_internet_exposed": false,
+      "is_crown_jewel": false,
+      "cves": [],
+      "misconfigurations": []
+    },
+    {
+      "id": "node-iam-role-app",
+      "name": "AppRuntimeInstanceRole",
+      "node_type": "iam-role",
+      "provider": "aws",
+      "is_internet_exposed": false,
+      "is_crown_jewel": false,
+      "cves": [],
+      "misconfigurations": ["OverprivilegedAssumeRolePolicy"]
+    },
+    {
+      "id": "node-iam-role-admin",
+      "name": "CloudOpsSuperAdminRole",
+      "node_type": "iam-role",
+      "provider": "aws",
+      "is_internet_exposed": false,
+      "is_crown_jewel": false,
+      "cves": [],
+      "misconfigurations": ["WildcardResourceAction"]
+    },
+    {
+      "id": "node-customer-pii-s3",
+      "name": "prod-customer-pii-lake",
+      "node_type": "data-store",
+      "provider": "aws",
+      "is_internet_exposed": false,
+      "is_crown_jewel": true,
+      "cves": [],
+      "misconfigurations": ["UnencryptedBucket"]
+    },
+    {
+      "id": "node-prod-aurora-db",
+      "name": "aurora-orders-cluster",
+      "node_type": "database",
+      "provider": "aws",
+      "is_internet_exposed": false,
+      "is_crown_jewel": true,
+      "cves": [],
+      "misconfigurations": []
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge-alb-ingress",
+      "source": "node-internet",
+      "target": "node-alb-prod",
+      "edge_type": "network-ingress",
+      "risk_weight": 1.0,
+      "is_active": true,
+      "remediation_action": "# Restrict ALB listener CIDR\nresource \"aws_lb_listener\" \"front_end\" { port = 443 }"
+    },
+    {
+      "id": "edge-alb-to-pod",
+      "source": "node-alb-prod",
+      "target": "node-frontend-pod",
+      "edge_type": "network-ingress",
+      "risk_weight": 1.0,
+      "is_active": true,
+      "remediation_action": "# Enforce network policy on ingress controller"
+    },
+    {
+      "id": "edge-pod-assumes-role",
+      "source": "node-frontend-pod",
+      "target": "node-iam-role-app",
+      "edge_type": "assumes-role",
+      "risk_weight": 2.5,
+      "is_active": true,
+      "remediation_action": "# Restrict IRSA Pod ServiceAccount trust policy"
+    },
+    {
+      "id": "edge-role-reads-s3",
+      "source": "node-iam-role-app",
+      "target": "node-customer-pii-s3",
+      "edge_type": "reads-data-store",
+      "risk_weight": 2.0,
+      "is_active": true,
+      "remediation_action": "# Revoke s3:GetObject on pii-lake from AppRuntimeInstanceRole"
+    },
+    {
+      "id": "edge-role-lateral-admin",
+      "source": "node-iam-role-app",
+      "target": "node-iam-role-admin",
+      "edge_type": "lateral-move",
+      "risk_weight": 3.0,
+      "is_active": true,
+      "remediation_action": "# Remove sts:AssumeRole for SuperAdminRole from AppRuntimeInstanceRole"
+    },
+    {
+      "id": "edge-admin-access-db",
+      "source": "node-iam-role-admin",
+      "target": "node-prod-aurora-db",
+      "edge_type": "permissions-grant",
+      "risk_weight": 2.5,
+      "is_active": true,
+      "remediation_action": "# Apply RDS IAM authentication restriction"
+    },
+    {
+      "id": "edge-bastion-ssh",
+      "source": "node-internet",
+      "target": "node-bastion-vm",
+      "edge_type": "network-ingress",
+      "risk_weight": 2.0,
+      "is_active": true,
+      "remediation_action": "# Remove 0.0.0.0/0 SSH rule on bastion security group"
+    },
+    {
+      "id": "edge-bastion-to-node",
+      "source": "node-bastion-vm",
+      "target": "node-eks-node",
+      "edge_type": "lateral-move",
+      "risk_weight": 1.5,
+      "is_active": true,
+      "remediation_action": "# Remove internal subnet traversal from bastion to EKS nodes"
+    },
+    {
+      "id": "edge-node-to-app-role",
+      "source": "node-eks-node",
+      "target": "node-iam-role-app",
+      "edge_type": "assumes-role",
+      "risk_weight": 2.0,
+      "is_active": true,
+      "remediation_action": "# Restrict EC2 instance profile role assumption"
+    }
+  ]
+}
