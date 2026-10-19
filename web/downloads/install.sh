@@ -53,12 +53,20 @@ echo ""
 case ":${PATH}:" in
     *":${INSTALL_DIR}:"*) ;;
     *)
-        echo "Notice: ${INSTALL_DIR} is not in your current PATH."
-        echo "To add it to your PATH, append this line to your ~/.zshrc or ~/.bashrc:"
+        APPENDED=0
+        for rc in "${HOME}/.zshrc" "${HOME}/.bashrc"; do
+            if [ -f "$rc" ] && ! grep -q ".cloudsecure/bin" "$rc" 2>/dev/null; then
+                printf "\n# CloudSecure CLI Suite\nexport PATH=\"\${HOME}/.cloudsecure/bin:\${PATH}\"\n" >> "$rc"
+                echo "Added ~/.cloudsecure/bin to ${rc}"
+                APPENDED=1
+            fi
+        done
+        echo ""
+        echo "To use 'launchersecure' immediately in your current terminal session, run:"
         echo ""
         echo "  export PATH=\"\${HOME}/.cloudsecure/bin:\${PATH}\""
         echo ""
         ;;
 esac
 
-echo "Run 'launchersecure' to launch the suite manager."
+echo "Run 'launchersecure' or '~/.cloudsecure/bin/launchersecure' to launch the suite manager."
