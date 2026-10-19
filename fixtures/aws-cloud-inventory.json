@@ -1,0 +1,134 @@
+[
+  {
+    "id": "res-s3-001",
+    "arn": "arn:aws:s3:::customer-export-bucket",
+    "name": "customer-export-bucket",
+    "provider": "aws",
+    "account_id": "123456789012",
+    "region": "us-east-1",
+    "service": "s3",
+    "resource_type": "aws-s3-bucket",
+    "state": {
+      "name": "customer-export-bucket",
+      "publicAccessBlockConfiguration": {
+        "blockPublicAcls": false,
+        "blockPublicPolicy": false,
+        "ignorePublicAcls": false,
+        "restrictPublicBuckets": false
+      },
+      "encryption": {
+        "enabled": true,
+        "sseAlgorithm": "aws:kms"
+      }
+    },
+    "tags": {
+      "Environment": "Production",
+      "Owner": "SecOps"
+    }
+  },
+  {
+    "id": "res-s3-002",
+    "arn": "arn:aws:s3:::secure-audit-logs",
+    "name": "secure-audit-logs",
+    "provider": "aws",
+    "account_id": "123456789012",
+    "region": "us-east-1",
+    "service": "s3",
+    "resource_type": "aws-s3-bucket",
+    "state": {
+      "name": "secure-audit-logs",
+      "publicAccessBlockConfiguration": {
+        "blockPublicAcls": true,
+        "blockPublicPolicy": true,
+        "ignorePublicAcls": true,
+        "restrictPublicBuckets": true
+      }
+    },
+    "tags": {
+      "Environment": "Production"
+    }
+  },
+  {
+    "id": "res-rds-001",
+    "arn": "arn:aws:rds:us-east-1:123456789012:db:legacy-orders",
+    "name": "legacy-orders",
+    "provider": "aws",
+    "account_id": "123456789012",
+    "region": "us-east-1",
+    "service": "rds",
+    "resource_type": "aws-rds-instance",
+    "state": {
+      "dbInstanceIdentifier": "legacy-orders",
+      "engine": "postgres",
+      "storageEncrypted": false,
+      "publiclyAccessible": false
+    },
+    "tags": {
+      "Environment": "Staging"
+    }
+  },
+  {
+    "id": "res-sg-001",
+    "arn": "arn:aws:ec2:us-east-1:123456789012:security-group/sg-01a2b3c4d5",
+    "name": "bastion-sg",
+    "provider": "aws",
+    "account_id": "123456789012",
+    "region": "us-east-1",
+    "service": "ec2",
+    "resource_type": "aws-security-group",
+    "state": {
+      "groupId": "sg-01a2b3c4d5",
+      "groupName": "bastion-sg",
+      "ipPermissions": [
+        {
+          "fromPort": 22,
+          "toPort": 22,
+          "ipProtocol": "tcp",
+          "ipRanges": [
+            {
+              "cidrIp": "0.0.0.0/0"
+            }
+          ]
+        }
+      ]
+    },
+    "tags": {
+      "Tier": "Edge"
+    }
+  },
+  {
+    "id": "res-az-001",
+    "arn": "/subscriptions/sub-1/resourceGroups/rg-prod/providers/Microsoft.Storage/storageAccounts/proddata2026",
+    "name": "proddata2026",
+    "provider": "azure",
+    "account_id": "sub-1",
+    "region": "eastus",
+    "service": "storage",
+    "resource_type": "azure-storage-account",
+    "state": {
+      "name": "proddata2026",
+      "properties": {
+        "supportsHttpsTrafficOnly": false,
+        "allowBlobPublicAccess": true
+      }
+    },
+    "tags": {}
+  },
+  {
+    "id": "res-gcp-001",
+    "arn": "//storage.googleapis.com/analytics-exports-gcp",
+    "name": "analytics-exports-gcp",
+    "provider": "gcp",
+    "account_id": "proj-analytics-99",
+    "region": "us-central1",
+    "service": "storage",
+    "resource_type": "gcp-storage-bucket",
+    "state": {
+      "name": "analytics-exports-gcp",
+      "uniformBucketLevelAccess": {
+        "enabled": false
+      }
+    },
+    "tags": {}
+  }
+]

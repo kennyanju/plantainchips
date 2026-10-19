@@ -1,0 +1,25 @@
+[package]
+name = "posturesecure-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "posturesecure-cli"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+posturesecure = { path = "../posturesecure" }
+cloudsecure-types = { path = "../../crates/cloudsecure-types" }
+cloudsecure-rql = { path = "../../crates/cloudsecure-rql" }
+cloudsecure-policy = { path = "../../crates/cloudsecure-policy" }
+cloudsecure-automation = { path = "../../crates/cloudsecure-automation" }
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }

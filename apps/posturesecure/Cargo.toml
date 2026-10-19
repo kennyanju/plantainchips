@@ -1,0 +1,20 @@
+[package]
+name = "posturesecure"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+cloudsecure-types = { path = "../../crates/cloudsecure-types" }
+cloudsecure-rql = { path = "../../crates/cloudsecure-rql" }
+cloudsecure-policy = { path = "../../crates/cloudsecure-policy" }
+cloudsecure-automation = { path = "../../crates/cloudsecure-automation" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+chrono = { workspace = true }
+sha2 = { workspace = true }

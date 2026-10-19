@@ -1,0 +1,15 @@
+[package]
+name = "cloudsecure-rql"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+cloudsecure-types = { path = "../cloudsecure-types" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }

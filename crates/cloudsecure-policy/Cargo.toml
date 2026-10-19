@@ -1,0 +1,17 @@
+[package]
+name = "cloudsecure-policy"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+cloudsecure-types = { path = "../cloudsecure-types" }
+cloudsecure-rql = { path = "../cloudsecure-rql" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+sha2 = { workspace = true }
