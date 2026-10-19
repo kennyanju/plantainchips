@@ -1,0 +1,49 @@
+[
+  {
+    "id": "img-frontend-v24",
+    "repository": "corp/ecommerce-frontend",
+    "tag": "v2.4.1",
+    "digest": "sha256:4b9102c78912e987162534fba0192837461524354678192039485761524312ab",
+    "architecture": "amd64",
+    "layers": [
+      {
+        "layer_index": 0,
+        "created_by": "FROM alpine:3.18",
+        "size_bytes": 7340032,
+        "packages": [
+          { "name": "alpine-base", "version": "3.18.2", "ecosystem": "apk" },
+          { "name": "musl", "version": "1.2.4-r1", "ecosystem": "apk" }
+        ],
+        "secrets_leaked": []
+      },
+      {
+        "layer_index": 1,
+        "created_by": "RUN apk add --no-cache openssl=3.0.8-r0 nghttp2=1.25.0-r0",
+        "size_bytes": 14680064,
+        "packages": [
+          { "name": "openssl", "version": "3.0.8-r0", "ecosystem": "apk" },
+          { "name": "nghttp2", "version": "1.25.0-r0", "ecosystem": "apk" }
+        ],
+        "secrets_leaked": []
+      },
+      {
+        "layer_index": 2,
+        "created_by": "RUN apk add docker-cli=26.1.1-r0 && echo 'API_KEY=AKIAIOSFODNN7EXAMPLE' > /tmp/key.txt",
+        "size_bytes": 22020096,
+        "packages": [
+          { "name": "docker", "version": "26.1.1-r0", "ecosystem": "apk" }
+        ],
+        "secrets_leaked": ["AKIAIOSFODNN7EXAMPLE"]
+      },
+      {
+        "layer_index": 3,
+        "created_by": "COPY . /app && rm -f /tmp/key.txt",
+        "size_bytes": 12582912,
+        "packages": [
+          { "name": "gunicorn", "version": "21.2.0", "ecosystem": "pypi" }
+        ],
+        "secrets_leaked": []
+      }
+    ]
+  }
+]

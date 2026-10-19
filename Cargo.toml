@@ -16,6 +16,8 @@ members = [
     "apps/graphsecure-cli",
     "apps/identitysecure",
     "apps/identitysecure-cli",
+    "apps/workloadsecure",
+    "apps/workloadsecure-cli",
 ]
 
 [workspace.package]
