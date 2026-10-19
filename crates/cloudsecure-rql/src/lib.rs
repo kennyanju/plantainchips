@@ -61,35 +61,46 @@ impl RqlQuery {
         let trimmed = input.trim();
         let lower = trimmed.to_lowercase();
 
-        let family = if lower.starts_with("config from") {
-            ResourceFamily::Config
-        } else if lower.starts_with("iam from") {
-            ResourceFamily::Iam
-        } else if lower.starts_with("event from") {
-            ResourceFamily::Event
-        } else if lower.starts_with("data from") {
-            ResourceFamily::Data
-        } else if lower.starts_with("network from") {
-            ResourceFamily::Network
-        } else if lower.starts_with("ai from") {
-            ResourceFamily::Ai
+        let (family, rest) = if lower.starts_with("config from ") {
+            (ResourceFamily::Config, &trimmed[12..])
+        } else if lower.starts_with("iam from ") {
+            (ResourceFamily::Iam, &trimmed[9..])
+        } else if lower.starts_with("event from ") {
+            (ResourceFamily::Event, &trimmed[11..])
+        } else if lower.starts_with("data from ") {
+            (ResourceFamily::Data, &trimmed[10..])
+        } else if lower.starts_with("network from ") {
+            (ResourceFamily::Network, &trimmed[13..])
+        } else if lower.starts_with("ai from ") {
+            (ResourceFamily::Ai, &trimmed[8..])
+        } else if lower == "config from" {
+            (ResourceFamily::Config, "")
+        } else if lower == "iam from" {
+            (ResourceFamily::Iam, "")
+        } else if lower == "event from" {
+            (ResourceFamily::Event, "")
+        } else if lower == "data from" {
+            (ResourceFamily::Data, "")
+        } else if lower == "network from" {
+            (ResourceFamily::Network, "")
+        } else if lower == "ai from" {
+            (ResourceFamily::Ai, "")
         } else {
             return Err(RqlError::ParseError(0, "Statement must start with a valid RQL clause ('config from', 'iam from', 'event from', 'data from', 'network from', 'ai from')".into()));
         };
 
-        let where_idx = lower.find(" where ");
-        let (target, where_clause) = match where_idx {
-            Some(idx) => {
-                let from_end = lower.find("from").unwrap() + 4;
-                let target_part = trimmed[from_end..idx].trim().to_string();
-                let where_part = trimmed[idx + 7..].trim();
-                (target_part, Some(where_part))
-            }
-            None => {
-                let from_end = lower.find("from").unwrap() + 4;
-                let target_part = trimmed[from_end..].trim().to_string();
-                (target_part, None)
-            }
+        let lower_rest = rest.to_lowercase();
+        let (target, where_clause) = if let Some(idx) = lower_rest.find(" where ") {
+            let char_idx = lower_rest[..idx].chars().count();
+            let rest_byte_start = rest.char_indices().nth(char_idx).map(|(b, _)| b).unwrap_or(idx);
+            let target_part = rest[..rest_byte_start].trim().to_string();
+
+            let where_char_end = char_idx + 7;
+            let rest_byte_end = rest.char_indices().nth(where_char_end).map(|(b, _)| b).unwrap_or(rest.len());
+            let where_part = rest[rest_byte_end..].trim();
+            (target_part, Some(where_part))
+        } else {
+            (rest.trim().to_string(), None)
         };
 
         let mut predicates = Vec::new();

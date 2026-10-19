@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import sys, os, json, argparse, hashlib
+from datetime import datetime, timezone
 
 FRAMEWORKS = {
     "soc2": {
@@ -199,7 +200,7 @@ def compile_bundle(findings, framework_code, organization="Acme Cloud Infrastruc
     return {
         "bundle_id": f"BUNDLE-{fw['id'].upper()}-{manifest_hash[:8]}",
         "framework": fw["title"],
-        "compiled_at": "2026-10-19T22:30:00Z",
+        "compiled_at": datetime.now(timezone.utc).isoformat(),
         "organization": organization,
         "readiness_percentage": readiness["readiness_percentage"],
         "total_findings_evaluated": len(findings),

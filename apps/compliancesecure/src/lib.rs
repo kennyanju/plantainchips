@@ -6,10 +6,15 @@
 //! Queue by cross-pillar blast-radius reduction and compiles signed audit packages
 //! for SOC 2, ISO 27001, PCI-DSS v4, HIPAA, NIST CSF 2.0, and FedRAMP.
 
-use cloudsecure_types::{Finding, Severity};
+use cloudsecure_automation::{CloudSecureAppEngine, CommandReceipt};
+use cloudsecure_types::{
+    AppCatalogEntry, Finding, SarifArtifactLocation, SarifDriver, SarifLocation, SarifMessage,
+    SarifPhysicalLocation, SarifReport, SarifResult, SarifRule, SarifRun, SarifTool, Severity,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
+use thiserror::Error;
 
 /// Supported compliance frameworks in ComplianceSecure.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -331,7 +336,7 @@ impl UnifiedPostureAggregator {
         AuditEvidenceBundle {
             bundle_id: format!("BUNDLE-{}-{}", framework.id_code().to_uppercase(), &manifest_hash[..8]),
             framework: framework.display_title().into(),
-            compiled_at: "2026-10-19T22:30:00Z".into(),
+            compiled_at: chrono::Utc::now().to_rfc3339(),
             organization: organization.into(),
             readiness_percentage: readiness.readiness_percentage,
             total_findings_evaluated: self.findings.len(),
@@ -466,5 +471,160 @@ impl AuditBundleExporter {
             ));
         }
         csv
+    }
+}
+
+#[derive(Error, Debug)]
+pub enum ComplianceError {
+    #[error("Framework error: {0}")]
+    Framework(String),
+    #[error("JSON error: {0}")]
+    Json(#[from] serde_json::Error),
+    #[error("I/O error: {0}")]
+    Io(String),
+}
+
+/// Executable commands accepted by UnifiedPostureAggregator.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ComplianceCommand {
+    IngestFindings(String),
+    EvaluateFramework(String),
+    CompileBundle { framework: String, organization: String },
+    Clear,
+}
+
+/// State snapshot of the UnifiedPostureAggregator.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComplianceStateSnapshot {
+    pub total_findings: usize,
+    pub top_remediations_count: usize,
+    pub frameworks_evaluated: usize,
+    pub findings: Vec<IngestedPostureFinding>,
+}
+
+impl CloudSecureAppEngine for UnifiedPostureAggregator {
+    type Command = ComplianceCommand;
+    type StateSnapshot = ComplianceStateSnapshot;
+    type Error = ComplianceError;
+
+    fn app_metadata(&self) -> AppCatalogEntry {
+        AppCatalogEntry {
+            index: 13,
+            id: "compliancesecure",
+            name: "ComplianceSecure",
+            pillar: "GOVERNANCE",
+            version: "0.1.0",
+            license: "MIT OR Apache-2.0",
+            description: "Executive compliance command center, top-10 breach-stopping remediation queue, and signed audit evidence exporter.",
+        }
+    }
+
+    fn execute(&mut self, cmd: Self::Command) -> Result<CommandReceipt, Self::Error> {
+        let start = std::time::Instant::now();
+        match cmd {
+            ComplianceCommand::IngestFindings(json_str) => {
+                let list: Vec<IngestedPostureFinding> = serde_json::from_str(&json_str)?;
+                let count = list.len();
+                self.ingest_findings(list);
+                Ok(CommandReceipt {
+                    command_name: "IngestFindings".into(),
+                    records_affected: count,
+                    execution_ms: start.elapsed().as_millis() as u64,
+                    state_hash: format!("{:x}", Sha256::digest(json_str.as_bytes())),
+                })
+            }
+            ComplianceCommand::EvaluateFramework(fw_str) => {
+                let fw = ComplianceFramework::parse_code(&fw_str)
+                    .ok_or_else(|| ComplianceError::Framework(format!("Unknown framework: {}", fw_str)))?;
+                let summary = self.evaluate_framework(fw);
+                Ok(CommandReceipt {
+                    command_name: "EvaluateFramework".into(),
+                    records_affected: summary.total_controls,
+                    execution_ms: start.elapsed().as_millis() as u64,
+                    state_hash: format!("{:x}", Sha256::digest(fw_str.as_bytes())),
+                })
+            }
+            ComplianceCommand::CompileBundle { framework, organization } => {
+                let fw = ComplianceFramework::parse_code(&framework)
+                    .ok_or_else(|| ComplianceError::Framework(format!("Unknown framework: {}", framework)))?;
+                let bundle = self.compile_bundle(fw, &organization);
+                Ok(CommandReceipt {
+                    command_name: "CompileBundle".into(),
+                    records_affected: bundle.controls.len(),
+                    execution_ms: start.elapsed().as_millis() as u64,
+                    state_hash: bundle.manifest_sha256,
+                })
+            }
+            ComplianceCommand::Clear => {
+                let count = self.findings.len();
+                self.findings.clear();
+                Ok(CommandReceipt {
+                    command_name: "Clear".into(),
+                    records_affected: count,
+                    execution_ms: start.elapsed().as_millis() as u64,
+                    state_hash: "empty".into(),
+                })
+            }
+        }
+    }
+
+    fn snapshot(&self) -> Self::StateSnapshot {
+        ComplianceStateSnapshot {
+            total_findings: self.findings.len(),
+            top_remediations_count: self.prioritize_remediations().len(),
+            frameworks_evaluated: 6,
+            findings: self.findings.clone(),
+        }
+    }
+
+    fn export_sarif(&self) -> SarifReport {
+        let mut rules = Vec::new();
+        let mut results = Vec::new();
+
+        for f in &self.findings {
+            rules.push(SarifRule {
+                id: f.rule_id.clone(),
+                name: f.title.clone(),
+                short_description: SarifMessage {
+                    text: f.description.clone(),
+                },
+            });
+
+            results.push(SarifResult {
+                rule_id: f.rule_id.clone(),
+                level: match f.severity {
+                    Severity::Critical | Severity::High => "error".into(),
+                    Severity::Medium => "warning".into(),
+                    Severity::Low => "note".into(),
+                    Severity::Info => "none".into(),
+                },
+                message: SarifMessage {
+                    text: f.evidence_detail.clone(),
+                },
+                locations: vec![SarifLocation {
+                    physical_location: SarifPhysicalLocation {
+                        artifact_location: SarifArtifactLocation {
+                            uri: f.resource_id.clone(),
+                        },
+                    },
+                }],
+            });
+        }
+
+        SarifReport {
+            schema: "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json".into(),
+            version: "2.1.0".into(),
+            runs: vec![SarifRun {
+                tool: SarifTool {
+                    driver: SarifDriver {
+                        name: "ComplianceSecure".into(),
+                        version: "0.1.0".into(),
+                        information_uri: "https://github.com/kennyanju/plantainchips".into(),
+                        rules,
+                    },
+                },
+                results,
+            }],
+        }
     }
 }

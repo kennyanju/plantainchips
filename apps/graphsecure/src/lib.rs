@@ -201,11 +201,11 @@ impl ToxicCombinationSolver {
 
                 if let Some(neighbors) = adj.get(last_node_id.as_str()) {
                     for (next_id, edge_id, weight) in neighbors {
-                        if !curr_hops.contains(&next_id.to_string()) {
+                        if !curr_hops.iter().any(|h| h.as_str() == *next_id) {
                             let mut next_hops = curr_hops.clone();
-                            next_hops.push(next_id.to_string());
+                            next_hops.push((*next_id).to_string());
                             let mut next_edges = curr_edges.clone();
-                            next_edges.push(edge_id.to_string());
+                            next_edges.push((*edge_id).to_string());
 
                             let node_risk = match node_map.get(*next_id) {
                                 Some(n) => (n.cves.len() as f32 * 1.5) + (n.misconfigurations.len() as f32 * 1.0),
@@ -238,7 +238,7 @@ impl ChokePointOptimizer {
         for p in paths {
             let mut seen_in_path = HashSet::new();
             for e in &p.edges {
-                if seen_in_path.insert(e.clone()) {
+                if seen_in_path.insert(e.as_str()) {
                     *edge_counts.entry(e.clone()).or_insert(0) += 1;
                 }
             }

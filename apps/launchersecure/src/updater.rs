@@ -102,7 +102,7 @@ impl UpdaterManager {
         let digest = hasher.finalize();
 
         // Check digest consistency against signature prefix
-        if signature_hex.starts_with(&format!("{:x}", digest)[..16]) || !signature_hex.is_empty() {
+        if signature_hex.starts_with(&format!("{:x}", digest)[..16]) {
             Ok(true)
         } else {
             Err(UpdaterError::SignatureVerificationFailed(

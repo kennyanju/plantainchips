@@ -5,11 +5,17 @@
 //! Authors, validates, unit-tests, and packages custom YAML/JSON policy packs with
 //! pass/fail test fixtures, severity scoring, and compliance control mappings.
 
+use cloudsecure_automation::{CloudSecureAppEngine, CommandReceipt};
 use cloudsecure_rql::{CloudResource, Predicate, ResourceFamily, RqlQuery};
-use cloudsecure_types::{Finding, Severity};
+use cloudsecure_types::{
+    AppCatalogEntry, CloudProvider, Finding, SarifArtifactLocation, SarifDriver, SarifLocation,
+    SarifMessage, SarifPhysicalLocation, SarifReport, SarifResult, SarifRule, SarifRun, SarifTool,
+    Severity,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
+use thiserror::Error;
 
 /// RQL query family enumeration for PolicySecure.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -377,9 +383,20 @@ impl PolicySecureEngine {
 pub fn convert_json_to_resource(val: &serde_json::Value) -> CloudResource {
     let id = val.get("id").and_then(|v| v.as_str()).unwrap_or("res-default").to_string();
     let name = val.get("name").and_then(|v| v.as_str()).unwrap_or("res-name").to_string();
-    let cloud_type = val.get("cloud_type").and_then(|v| v.as_str()).unwrap_or("aws").to_string();
+    let arn = val.get("arn").and_then(|v| v.as_str()).unwrap_or(&id).to_string();
+    let cloud_str = val.get("cloud_type").and_then(|v| v.as_str()).unwrap_or("aws").to_lowercase();
+    let provider = match cloud_str.as_str() {
+        "azure" => CloudProvider::Azure,
+        "gcp" => CloudProvider::Gcp,
+        "k8s" | "kubernetes" => CloudProvider::Kubernetes,
+        "oci" => CloudProvider::Oci,
+        _ => CloudProvider::Aws,
+    };
     let account_id = val.get("account_id").and_then(|v| v.as_str()).unwrap_or("123456789012").to_string();
     let region = val.get("region").and_then(|v| v.as_str()).unwrap_or("us-east-1").to_string();
+    let api_name = val.get("api").and_then(|a| a.get("name")).and_then(|n| n.as_str()).unwrap_or("cloud.resource");
+    let service = val.get("service").and_then(|v| v.as_str()).unwrap_or(api_name).to_string();
+    let resource_type = val.get("resource_type").and_then(|v| v.as_str()).unwrap_or(api_name).to_string();
 
     let mut tags = HashMap::new();
     if let Some(t_obj) = val.get("tags").and_then(|v| v.as_object()) {
@@ -392,13 +409,26 @@ pub fn convert_json_to_resource(val: &serde_json::Value) -> CloudResource {
 
     CloudResource {
         id,
+        arn,
         name,
-        cloud_type,
+        provider,
         account_id,
         region,
-        tags,
+        service,
+        resource_type,
         state: val.clone(),
+        tags,
     }
+}
+
+#[derive(Error, Debug)]
+pub enum PolicyError {
+    #[error("RQL error: {0}")]
+    Rql(String),
+    #[error("Policy pack error: {0}")]
+    Pack(String),
+    #[error("JSON error: {0}")]
+    Json(#[from] serde_json::Error),
 }
 
 /// Commands accepted by PolicySecureEngine.
@@ -407,5 +437,139 @@ pub enum PolicyCommand {
     ExplainQuery(String),
     ValidatePack(String),
     RunUnitTests(String),
-    BenchmarkQuery { query: String, iterations: usize },
+    LoadPack(String),
+    Clear,
+}
+
+/// Snapshot of PolicySecure state.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PolicyStateSnapshot {
+    pub pack_name: Option<String>,
+    pub rules_count: usize,
+    pub last_test_report: Option<PolicyPackTestReport>,
+    pub last_validation_report: Option<PolicyPackValidationReport>,
+}
+
+impl CloudSecureAppEngine for PolicySecureEngine {
+    type Command = PolicyCommand;
+    type StateSnapshot = PolicyStateSnapshot;
+    type Error = PolicyError;
+
+    fn app_metadata(&self) -> AppCatalogEntry {
+        AppCatalogEntry {
+            index: 12,
+            id: "policysecure",
+            name: "PolicySecure",
+            pillar: "GOVERNANCE",
+            version: "0.1.0",
+            license: "MIT OR Apache-2.0",
+            description: "Unified RQL and Policy-as-Code Studio with AST explain profiler and test fixture runner.",
+        }
+    }
+
+    fn execute(&mut self, cmd: Self::Command) -> Result<CommandReceipt, Self::Error> {
+        let start = std::time::Instant::now();
+        match cmd {
+            PolicyCommand::ExplainQuery(q) => {
+                let plan = Self::explain_query(&q);
+                let is_valid = plan.is_valid;
+                self.last_explain_plan = Some(plan);
+                Ok(CommandReceipt {
+                    command_name: "ExplainQuery".into(),
+                    records_affected: if is_valid { 1 } else { 0 },
+                    execution_ms: start.elapsed().as_millis() as u64,
+                    state_hash: format!("{:x}", Sha256::digest(q.as_bytes())),
+                })
+            }
+            PolicyCommand::ValidatePack(json_str) => {
+                let pack: PolicyPack = serde_json::from_str(&json_str)?;
+                let report = Self::validate_pack(&pack);
+                let rule_count = report.rule_count;
+                self.active_pack = Some(pack);
+                Ok(CommandReceipt {
+                    command_name: "ValidatePack".into(),
+                    records_affected: rule_count,
+                    execution_ms: start.elapsed().as_millis() as u64,
+                    state_hash: format!("{:x}", Sha256::digest(json_str.as_bytes())),
+                })
+            }
+            PolicyCommand::RunUnitTests(json_str) => {
+                let pack: PolicyPack = serde_json::from_str(&json_str)?;
+                let report = Self::run_unit_tests(&pack);
+                let passed = report.passed_rules;
+                self.test_history.push(report);
+                self.active_pack = Some(pack);
+                Ok(CommandReceipt {
+                    command_name: "RunUnitTests".into(),
+                    records_affected: passed,
+                    execution_ms: start.elapsed().as_millis() as u64,
+                    state_hash: format!("{:x}", Sha256::digest(json_str.as_bytes())),
+                })
+            }
+            PolicyCommand::LoadPack(json_str) => {
+                let pack: PolicyPack = serde_json::from_str(&json_str)?;
+                let count = pack.rules.len();
+                self.active_pack = Some(pack);
+                Ok(CommandReceipt {
+                    command_name: "LoadPack".into(),
+                    records_affected: count,
+                    execution_ms: start.elapsed().as_millis() as u64,
+                    state_hash: format!("{:x}", Sha256::digest(json_str.as_bytes())),
+                })
+            }
+            PolicyCommand::Clear => {
+                self.active_pack = None;
+                self.test_history.clear();
+                self.last_explain_plan = None;
+                Ok(CommandReceipt {
+                    command_name: "Clear".into(),
+                    records_affected: 0,
+                    execution_ms: start.elapsed().as_millis() as u64,
+                    state_hash: "empty".into(),
+                })
+            }
+        }
+    }
+
+    fn snapshot(&self) -> Self::StateSnapshot {
+        PolicyStateSnapshot {
+            pack_name: self.active_pack.as_ref().map(|p| p.name.clone()),
+            rules_count: self.active_pack.as_ref().map(|p| p.rules.len()).unwrap_or(0),
+            last_test_report: self.test_history.last().cloned(),
+            last_validation_report: None,
+        }
+    }
+
+    fn export_sarif(&self) -> SarifReport {
+        let mut rules = Vec::new();
+        let results = Vec::new();
+
+        if let Some(pack) = &self.active_pack {
+            for r in &pack.rules {
+                rules.push(SarifRule {
+                    id: r.id.clone(),
+                    name: r.name.clone(),
+                    short_description: SarifMessage {
+                        text: r.description.clone(),
+                    },
+                });
+            }
+        }
+
+        SarifReport {
+            schema: "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json".into(),
+            version: "2.1.0".into(),
+            runs: vec![SarifRun {
+                tool: SarifTool {
+                    driver: SarifDriver {
+                        name: "PolicySecure".into(),
+                        version: "0.1.0".into(),
+                        information_uri: "https://github.com/kennyanju/plantainchips".into(),
+                        rules,
+                    },
+                },
+                results,
+            }],
+        }
+    }
 }
