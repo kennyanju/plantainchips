@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>404 - Not Found | CloudSecure</title>
+  <link rel="stylesheet" href="css/design-system.css">
+  <link rel="stylesheet" href="css/layout.css">
+  <link rel="stylesheet" href="css/components.css">
+  <script src="js/theme.js"></script>
+</head>
+<body>
+
+  <!-- Top Navigation -->
+  <header>
+    <nav class="site-nav" id="site-nav" aria-label="Main Navigation">
+      <div class="nav-cluster-left">
+        <a href="index.html" class="nav-logo" aria-label="CloudSecure Home">
+          <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polygon points="16,3 28,9 28,21 16,29 4,21 4,9" stroke="#C84B24" />
+            <polyline points="16,3 16,29" stroke="currentColor" stroke-dasharray="2 2" />
+            <polyline points="4,9 16,16 28,9" stroke="currentColor" />
+            <circle cx="16" cy="16" r="3" fill="#C84B24" stroke="none" />
+          </svg>
+          <span>CLOUDSECURE</span>
+        </a>
+        <a href="index.html" class="nav-cell">Home</a>
+        <a href="apps.html" class="nav-cell">Apps (13)</a>
+        <a href="rql.html" class="nav-cell">RQL Studio</a>
+        <a href="download.html" class="nav-cell">Download</a>
+        <a href="docs.html" class="nav-cell">Docs</a>
+      </div>
+
+      <div class="nav-cluster-right">
+        <a href="https://github.com/kennyanju/plantainchips" target="_blank" rel="noopener noreferrer" class="nav-cell" aria-label="GitHub Repository">GitHub</a>
+        <button id="theme-toggle-btn" class="nav-cell-btn" aria-label="Toggle light and dark mode">DARK</button>
+        <a href="rql.html" class="nav-cell nav-cta">Launch RQL</a>
+      </div>
+    </nav>
+  </header>
+
+  <main class="arch-container">
+    <span class="tick tick-top-left" aria-hidden="true"></span>
+    <span class="tick tick-top-right" aria-hidden="true"></span>
+    <span class="tick tick-bottom-left" aria-hidden="true"></span>
+    <span class="tick tick-bottom-right" aria-hidden="true"></span>
+
+    <section class="hero-bay" style="padding: 6rem 2rem; text-align: center;">
+      <div class="badge-sev badge-high" style="margin-bottom: 1.5rem;">[/!\] HTTP 404</div>
+      <h1 class="hero-headline" style="margin: 0 auto 1.5rem auto;">
+        Security target not found.
+      </h1>
+      <p class="hero-lead" style="margin: 0 auto 2.5rem auto;">
+        The requested URL route does not exist in the CloudSecure catalog. Return to the homepage or inspect our 13 applications.
+      </p>
+      <div class="hero-ctas" style="justify-content: center;">
+        <a href="index.html" class="btn btn-primary">Return to Homepage</a>
+        <a href="apps.html" class="btn btn-secondary">Browse Applications</a>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer-bay">
+      <div class="legal-disclaimer">
+        CloudSecure is an independent open-source clean-room project written in pure Rust.
+      </div>
+    </footer>
+  </main>
+
+</body>
+</html>

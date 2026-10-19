@@ -1,0 +1,341 @@
+/* Sticky HUD Top Navigation */
+.site-nav {
+  position: sticky;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  height: var(--nav-height);
+  background-color: var(--bg);
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.nav-cluster-left, .nav-cluster-right {
+  display: flex;
+  align-items: stretch;
+}
+
+.nav-cell {
+  display: flex;
+  align-items: center;
+  padding: 0 1.25rem;
+  border-right: 1px solid var(--line);
+  font-family: var(--font-mono);
+  font-size: var(--text-hud);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--fg);
+  text-decoration: none;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+  white-space: nowrap;
+}
+
+.nav-cell:hover {
+  background-color: var(--invert-bg);
+  color: var(--invert-fg);
+}
+
+.nav-cell.active {
+  background-color: var(--invert-bg);
+  color: var(--invert-fg);
+}
+
+.nav-logo {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0 1.25rem;
+  border-right: 1px solid var(--line);
+  text-decoration: none;
+  color: var(--fg);
+  font-family: var(--font-display);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  font-size: 1.05rem;
+}
+
+.nav-logo svg {
+  width: 22px;
+  height: 22px;
+}
+
+.nav-cell-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0 1rem;
+  border-left: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: var(--text-hud);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+}
+
+.nav-cell-btn:hover {
+  background-color: var(--invert-bg);
+  color: var(--invert-fg);
+}
+
+.nav-cta {
+  background-color: var(--invert-bg);
+  color: var(--invert-fg);
+  border-left: 1px solid var(--line);
+  font-weight: 700;
+}
+
+.nav-cta:hover {
+  background-color: var(--accent-ink);
+  color: #FFFFFF;
+}
+
+/* Mobile Nav Menu Drawer */
+.mobile-menu-btn {
+  display: none;
+}
+
+.mobile-drawer {
+  display: none;
+  position: fixed;
+  top: var(--nav-height);
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--bg);
+  border-bottom: 1px solid var(--line);
+  padding: 2rem 1.5rem;
+  z-index: 99;
+  flex-direction: column;
+  gap: 1.5rem;
+  overflow-y: auto;
+}
+
+.mobile-drawer.open {
+  display: flex;
+}
+
+/* Architectural Container & Ticks */
+.arch-container {
+  width: 100%;
+  max-width: var(--max-width);
+  margin: 0 auto;
+  border-left: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+  position: relative;
+  background-color: var(--bg);
+}
+
+/* Corner Crosshair Ticks */
+.tick {
+  position: absolute;
+  width: var(--tick-size);
+  height: var(--tick-size);
+  pointer-events: none;
+  z-index: 10;
+}
+
+.tick::before, .tick::after {
+  content: '';
+  position: absolute;
+  background-color: var(--fg);
+}
+
+.tick::before {
+  top: 2px;
+  left: -2px;
+  width: 9px;
+  height: 1px;
+}
+
+.tick::after {
+  top: -2px;
+  left: 2px;
+  width: 1px;
+  height: 9px;
+}
+
+.tick-top-left { top: -1px; left: -1px; }
+.tick-top-right { top: -1px; right: -1px; }
+.tick-bottom-left { bottom: -1px; left: -1px; }
+.tick-bottom-right { bottom: -1px; right: -1px; }
+
+/* Sticky Section Eyebrow Bars */
+.section-eyebrow {
+  position: sticky;
+  top: var(--nav-height);
+  z-index: 40;
+  height: var(--eyebrow-height);
+  background-color: var(--bg);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding: 0 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.hud-label {
+  font-family: var(--font-mono);
+  font-size: var(--text-hud);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+}
+
+.hud-index {
+  color: var(--accent-ink);
+  font-weight: 700;
+  margin-right: 0.35rem;
+}
+
+/* Hero Section */
+.hero-bay {
+  padding: 4rem 2rem 3rem 2rem;
+  border-bottom: 1px solid var(--line);
+  position: relative;
+}
+
+.hero-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: var(--font-mono);
+  font-size: var(--text-hud);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  padding: 0.35rem 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.hero-tag-pulse {
+  width: 6px;
+  height: 6px;
+  background-color: var(--accent-ink);
+  border-radius: 50%;
+}
+
+.hero-headline {
+  font-family: var(--font-display);
+  font-size: var(--text-hero);
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: -0.035em;
+  color: var(--fg);
+  max-width: 960px;
+  margin-bottom: 1.5rem;
+}
+
+.hero-headline .serif-word {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-style: italic;
+  color: var(--accent-ink);
+}
+
+.hero-lead {
+  font-size: var(--text-body-lg);
+  color: var(--muted);
+  max-width: 820px;
+  line-height: 1.6;
+  margin-bottom: 2.25rem;
+}
+
+.hero-ctas {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+/* App Grid Layout */
+.app-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-bottom: 1px solid var(--line);
+}
+
+.app-grid-2col {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-bottom: 1px solid var(--line);
+}
+
+.app-card {
+  padding: 2rem 1.75rem;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background-color: var(--bg);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  transition: background-color var(--transition-fast);
+}
+
+.app-card:hover {
+  background-color: var(--surface-hover);
+}
+
+/* Comparison Matrix Bay */
+.matrix-bay {
+  padding: 3rem 2rem;
+  border-bottom: 1px solid var(--line);
+}
+
+/* Responsive Breakpoints */
+@media (max-width: 1279px) {
+  .app-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 959px) {
+  .nav-cell:not(.nav-mobile-keep) {
+    display: none;
+  }
+  .mobile-menu-btn {
+    display: flex;
+  }
+  .hero-bay {
+    padding: 3rem 1.5rem 2rem 1.5rem;
+  }
+  .app-grid, .app-grid-2col {
+    grid-template-columns: 1fr;
+  }
+  .app-card {
+    border-right: none;
+  }
+}
+
+@media (max-width: 639px) {
+  .hero-headline {
+    font-size: clamp(2rem, 8vw, 2.75rem);
+  }
+  .hero-ctas {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .section-eyebrow {
+    padding: 0 1rem;
+  }
+  .nav-cell {
+    padding: 0 0.75rem;
+  }
+}

@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RQL Studio | Unified Resource Query Language Playground</title>
+  <meta name="description" content="Interactive browser playground for the open-source Unified Resource Query Language (RQL) engine built in pure Rust.">
+  <link rel="stylesheet" href="css/design-system.css">
+  <link rel="stylesheet" href="css/layout.css">
+  <link rel="stylesheet" href="css/components.css">
+  <script src="js/theme.js"></script>
+</head>
+<body>
+
+  <!-- Top Navigation -->
+  <header>
+    <nav class="site-nav" id="site-nav" aria-label="Main Navigation">
+      <div class="nav-cluster-left">
+        <a href="index.html" class="nav-logo" aria-label="CloudSecure Home">
+          <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polygon points="16,3 28,9 28,21 16,29 4,21 4,9" stroke="#C84B24" />
+            <polyline points="16,3 16,29" stroke="currentColor" stroke-dasharray="2 2" />
+            <polyline points="4,9 16,16 28,9" stroke="currentColor" />
+            <circle cx="16" cy="16" r="3" fill="#C84B24" stroke="none" />
+          </svg>
+          <span>CLOUDSECURE</span>
+        </a>
+        <a href="index.html" class="nav-cell">Home</a>
+        <a href="apps.html" class="nav-cell">Apps (13)</a>
+        <a href="rql.html" class="nav-cell active nav-mobile-keep">RQL Studio</a>
+        <a href="download.html" class="nav-cell">Download</a>
+        <a href="docs.html" class="nav-cell">Docs</a>
+      </div>
+
+      <div class="nav-cluster-right">
+        <a href="https://github.com/kennyanju/plantainchips" target="_blank" rel="noopener noreferrer" class="nav-cell" aria-label="GitHub Repository">GitHub</a>
+        <button id="theme-toggle-btn" class="nav-cell-btn" aria-label="Toggle light and dark mode">DARK</button>
+        <a href="download.html" class="nav-cell nav-cta">Download Suite</a>
+        <button id="mobile-menu-btn" class="nav-cell-btn mobile-menu-btn" aria-label="Toggle Menu" aria-expanded="false">MENU</button>
+      </div>
+    </nav>
+  </header>
+
+  <!-- Mobile Drawer -->
+  <div id="mobile-drawer" class="mobile-drawer" role="dialog" aria-modal="true" aria-label="Mobile Navigation">
+    <a href="index.html" class="nav-cell">Home</a>
+    <a href="apps.html" class="nav-cell">Apps (13)</a>
+    <a href="rql.html" class="nav-cell active">RQL Studio</a>
+    <a href="download.html" class="nav-cell">Download</a>
+    <a href="docs.html" class="nav-cell">Documentation</a>
+    <a href="https://github.com/kennyanju/plantainchips" target="_blank" rel="noopener noreferrer" class="nav-cell">GitHub Repo</a>
+  </div>
+
+  <main class="arch-container">
+    <span class="tick tick-top-left" aria-hidden="true"></span>
+    <span class="tick tick-top-right" aria-hidden="true"></span>
+    <span class="tick tick-bottom-left" aria-hidden="true"></span>
+    <span class="tick tick-bottom-right" aria-hidden="true"></span>
+
+    <!-- Hero Bay -->
+    <section class="hero-bay" aria-labelledby="rql-heading">
+      <div class="hero-tag">
+        <span class="hero-tag-pulse" aria-hidden="true"></span>
+        <span>Unified RQL Engine · Zero-Copy Rust Parser</span>
+      </div>
+      <h1 id="rql-heading" class="hero-headline">
+        Unified Resource Query Language <span class="serif-word">Studio</span>.
+      </h1>
+      <p class="hero-lead">
+        Query multi-cloud posture, identity entitlements, network reachability, sensitive data stores, and workload runtime events with a single declarative grammar running at native speed.
+      </p>
+    </section>
+
+    <!-- Eyebrow 01: Query IDE -->
+    <div class="section-eyebrow">
+      <div class="hud-label"><span class="hud-index">01</span> / Query Authoring & Execution Workbench</div>
+      <div class="hud-label">EBNF Grammar Compliant · 6 Resource Families Supported</div>
+    </div>
+
+    <!-- RQL Studio Section -->
+    <section class="rql-studio-bay" aria-label="RQL Studio">
+      <div class="rql-container">
+        <div class="rql-header">
+          <div class="hud-label">Policy Presets:</div>
+          <div class="rql-presets">
+            <button class="rql-preset-btn" data-preset="s3_public">S3 Public Buckets</button>
+            <button class="rql-preset-btn" data-preset="iam_admin">Wildcard IAM Policies</button>
+            <button class="rql-preset-btn" data-preset="container_root">Container Syscall Alert</button>
+            <button class="rql-preset-btn" data-preset="pii_leak">Sensitive Data Exposure</button>
+            <button class="rql-preset-btn" data-preset="empty_example">Clean Scan (Zero Findings)</button>
+            <button class="rql-preset-btn" data-preset="error_example">Syntax Error (Recovery)</button>
+          </div>
+        </div>
+
+        <div class="rql-editor-wrap">
+          <textarea id="rql-editor-input" class="rql-input" aria-label="RQL Query Editor" spellcheck="false">config from cloud.resource where cloud.type = 'aws' and api.name = 'aws-s3-bucket' and json.rule = publicAccessBlockConfiguration.restrictPublicBuckets is false</textarea>
+        </div>
+
+        <div class="rql-statusbar">
+          <span id="rql-status-text">Status: Ready · Press Execute Query</span>
+          <button id="rql-run-btn" class="btn btn-primary btn-sm">Execute Query</button>
+        </div>
+
+        <div id="rql-output-container" class="rql-output-wrap" aria-live="polite">
+          <div class="state-box">
+            <div class="hud-label">Select a preset or click Execute Query</div>
+            <p class="state-desc">Evaluates AST predicates against real-time simulated asset graph inventories.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Eyebrow 02: Grammar Specification -->
+    <div class="section-eyebrow">
+      <div class="hud-label"><span class="hud-index">02</span> / Supported RQL Families & Syntax Reference</div>
+      <div class="hud-label">Standard Grammar Across All 13 CloudSecure Applications</div>
+    </div>
+
+    <!-- Grammar Bay -->
+    <section class="matrix-bay" aria-label="RQL Grammar Reference">
+      <table class="hud-table">
+        <thead>
+          <tr>
+            <th>Query Family</th>
+            <th>Canonical Target</th>
+            <th>Primary Application</th>
+            <th>Example Query Syntax</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>config from</code></td>
+            <td>Cloud resource configurations</td>
+            <td>PostureSecure (CSPM)</td>
+            <td><code>config from cloud.resource where cloud.type = 'aws' and api.name = 'aws-rds-db-instance' and json.rule = storageEncrypted is false</code></td>
+          </tr>
+          <tr>
+            <td><code>data from</code></td>
+            <td>Classified object stores & tables</td>
+            <td>DataSecure (DSPM)</td>
+            <td><code>data from cloud.data_store where data.classification in ('PII', 'PCI') and storage.is_public == true</code></td>
+          </tr>
+          <tr>
+            <td><code>event from</code></td>
+            <td>Audit logs & runtime syscalls</td>
+            <td>WorkloadSecure & ThreatSecure</td>
+            <td><code>event from cloud.audit_logs where operation = 'AuthorizeSecurityGroupIngress' and ip.source = '0.0.0.0/0'</code></td>
+          </tr>
+          <tr>
+            <td><code>iam from</code></td>
+            <td>Entitlements & effective permissions</td>
+            <td>IdentitySecure (CIEM)</td>
+            <td><code>iam from cloud.entitlements where source.type = 'role' and dest.action contains 'iam:*'</code></td>
+          </tr>
+          <tr>
+            <td><code>network from</code></td>
+            <td>VPC flow records & routing paths</td>
+            <td>NetSecure (CNS)</td>
+            <td><code>network from vpc.flow_record where dest.port in (22, 3389) and protocol = 'TCP' and action = 'ACCEPT'</code></td>
+          </tr>
+          <tr>
+            <td><code>ai from</code></td>
+            <td>LLM pipelines & vector indices</td>
+            <td>AiSecure (AI-SPM)</td>
+            <td><code>ai from pipeline.model where model.provider == 'huggingface' and pipeline.rag.retrieval_auth == false</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- Footer Bay -->
+    <footer class="footer-bay">
+      <div class="footer-grid">
+        <div class="footer-col">
+          <h4>CloudSecure RQL</h4>
+          <p class="app-desc">
+            A memory-safe, zero-copy Rust query engine unifying multi-cloud security telemetry.
+          </p>
+        </div>
+        <div class="footer-col">
+          <h4>Navigation</h4>
+          <ul class="footer-links">
+            <li><a href="index.html">Home Overview</a></li>
+            <li><a href="apps.html">All 13 Applications</a></li>
+            <li><a href="rql.html">RQL Studio</a></li>
+            <li><a href="download.html">Download Matrix</a></li>
+            <li><a href="docs.html">Documentation</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h4>Specifications</h4>
+          <ul class="footer-links">
+            <li><a href="https://github.com/kennyanju/plantainchips/blob/main/project-docs/cloudsecure-architecture.md#4-unified-rql-ebnf-grammar-winnow-parser" target="_blank" rel="noopener noreferrer">RQL EBNF Grammar</a></li>
+            <li><a href="https://github.com/kennyanju/plantainchips/blob/main/project-specs/cloudsecure-master-spec.md" target="_blank" rel="noopener noreferrer">System Architecture</a></li>
+            <li><a href="https://github.com/kennyanju/plantainchips" target="_blank" rel="noopener noreferrer">GitHub Repo</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h4>License</h4>
+          <p class="app-desc">Apache 2.0 & MIT Dual Licensed. Open source.</p>
+        </div>
+      </div>
+
+      <div class="legal-disclaimer">
+        <strong>Trademark Notice & Legal Disclaimer:</strong> CloudSecure is an independent open-source project. It is not affiliated with, sponsored by, or endorsed by Palo Alto Networks, Inc., Ivanti, or any other trademark owners.
+      </div>
+    </footer>
+  </main>
+
+  <script src="js/app.js"></script>
+</body>
+</html>

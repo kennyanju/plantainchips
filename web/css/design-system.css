@@ -1,0 +1,156 @@
+@import url('https://fonts.googleapis.com/css2?family=Archivo:ital,wght@0,300..900;1,300..900&family=Geist+Mono:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&display=swap');
+
+:root {
+  /* Core Theme - Light Mode (Technical Paper) */
+  --bg: #F2F1EE;
+  --fg: #141413;
+  --muted: #575652;
+  --faint: #888680;
+  --line: #DDD9D2;
+  --line-strong: #A8A59E;
+  --invert-bg: #141413;
+  --invert-fg: #F2F1EE;
+  --accent-ink: #C84B24;
+  --accent-faint: #FCECE6;
+
+  /* Card Surfaces & Overlays */
+  --surface: #FFFFFF;
+  --surface-hover: #F8F7F5;
+  --overlay-bg: rgba(20, 20, 19, 0.45);
+
+  /* Typography Fonts */
+  --font-display: 'Archivo', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-serif: 'Instrument Serif', Georgia, serif;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* Fluid Type Scale */
+  --text-hero: clamp(2.25rem, 4.5vw + 1rem, 4.25rem);
+  --text-h1: clamp(1.875rem, 3vw + 0.75rem, 3.25rem);
+  --text-h2: clamp(1.5rem, 2vw + 0.5rem, 2.25rem);
+  --text-h3: clamp(1.125rem, 1.2vw + 0.5rem, 1.5rem);
+  --text-body-lg: clamp(1.0rem, 0.4vw + 0.9rem, 1.125rem);
+  --text-body: 1rem;
+  --text-sm: 0.875rem;
+  --text-hud: 0.6875rem;
+
+  /* App Specific Accent Ink Tokens (Light Mode) */
+  --ink-posture: #0F52BA;
+  --ink-data: #0D6E52;
+  --ink-workload: #8B3A0E;
+  --ink-identity: #6B21A8;
+  --ink-code: #1E5631;
+  --ink-waas: #9D174D;
+  --ink-threat: #A81E23;
+  --ink-graph: #4338CA;
+  --ink-net: #0E606B;
+  --ink-aisec: #7C2D12;
+  --ink-supply: #374151;
+  --ink-policy: #854D0E;
+  --ink-compliance: #115E59;
+
+  /* Severity Badges (Light Mode) */
+  --sev-crit-bg: #FEE2E2;
+  --sev-crit-fg: #991B1B;
+  --sev-high-bg: #FFEDD5;
+  --sev-high-fg: #9A3412;
+  --sev-med-bg: #FEF3C7;
+  --sev-med-fg: #92400E;
+  --sev-low-bg: #EFF6FF;
+  --sev-low-fg: #1E40AF;
+  --sev-pass-bg: #DCFCE7;
+  --sev-pass-fg: #166534;
+
+  /* Grid & Architectural Parameters */
+  --max-width: 1280px;
+  --nav-height: 48px;
+  --eyebrow-height: 40px;
+  --tick-size: 5px;
+  --transition-fast: 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+[data-theme="dark"] {
+  /* Core Theme - Dark Mode (Carbon SOC) */
+  --bg: #0B0B0C;
+  --fg: #F2F1EE;
+  --muted: #A3A19A;
+  --faint: #6A6863;
+  --line: #232326;
+  --line-strong: #38373D;
+  --invert-bg: #F2F1EE;
+  --invert-fg: #0B0B0C;
+  --accent-ink: #E8633A;
+  --accent-faint: #261712;
+
+  --surface: #141416;
+  --surface-hover: #1A1A1E;
+  --overlay-bg: rgba(0, 0, 0, 0.75);
+
+  /* App Specific Accent Ink Tokens (Dark Mode) */
+  --ink-posture: #5C9DFF;
+  --ink-data: #34D399;
+  --ink-workload: #FB923C;
+  --ink-identity: #C084FC;
+  --ink-code: #4ADE80;
+  --ink-waas: #F472B6;
+  --ink-threat: #F87171;
+  --ink-graph: #818CF8;
+  --ink-net: #22D3EE;
+  --ink-aisec: #FDBA74;
+  --ink-supply: #9CA3AF;
+  --ink-policy: #FACC15;
+  --ink-compliance: #2DD4BF;
+
+  /* Severity Badges (Dark Mode) */
+  --sev-crit-bg: #450A0A;
+  --sev-crit-fg: #FCA5A5;
+  --sev-high-bg: #431407;
+  --sev-high-fg: #FDBA74;
+  --sev-med-bg: #451A03;
+  --sev-med-fg: #FDE047;
+  --sev-low-bg: #172554;
+  --sev-low-fg: #93C5FD;
+  --sev-pass-bg: #052E16;
+  --sev-pass-fg: #86EFAC;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: var(--text-body);
+  line-height: 1.55;
+  min-height: 100vh;
+  position: relative;
+  overflow-x: hidden;
+}
+
+/* Accessible focus visible ring */
+:focus-visible {
+  outline: 2px solid var(--accent-ink);
+  outline-offset: 2px;
+}
+
+/* Reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

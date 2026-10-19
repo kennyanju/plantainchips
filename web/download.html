@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Download & Installation | CloudSecure Suite</title>
+  <meta name="description" content="Download LauncherSecure and standalone binaries for macOS, Windows, Linux, and FreeBSD. Cryptographically signed with Ed25519 and SHA-256 verified.">
+  <link rel="stylesheet" href="css/design-system.css">
+  <link rel="stylesheet" href="css/layout.css">
+  <link rel="stylesheet" href="css/components.css">
+  <script src="js/theme.js"></script>
+</head>
+<body>
+
+  <!-- Top Navigation -->
+  <header>
+    <nav class="site-nav" id="site-nav" aria-label="Main Navigation">
+      <div class="nav-cluster-left">
+        <a href="index.html" class="nav-logo" aria-label="CloudSecure Home">
+          <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polygon points="16,3 28,9 28,21 16,29 4,21 4,9" stroke="#C84B24" />
+            <polyline points="16,3 16,29" stroke="currentColor" stroke-dasharray="2 2" />
+            <polyline points="4,9 16,16 28,9" stroke="currentColor" />
+            <circle cx="16" cy="16" r="3" fill="#C84B24" stroke="none" />
+          </svg>
+          <span>CLOUDSECURE</span>
+        </a>
+        <a href="index.html" class="nav-cell">Home</a>
+        <a href="apps.html" class="nav-cell">Apps (13)</a>
+        <a href="rql.html" class="nav-cell">RQL Studio</a>
+        <a href="download.html" class="nav-cell active nav-mobile-keep">Download</a>
+        <a href="docs.html" class="nav-cell">Docs</a>
+      </div>
+
+      <div class="nav-cluster-right">
+        <a href="https://github.com/kennyanju/plantainchips" target="_blank" rel="noopener noreferrer" class="nav-cell" aria-label="GitHub Repository">GitHub</a>
+        <button id="theme-toggle-btn" class="nav-cell-btn" aria-label="Toggle light and dark mode">DARK</button>
+        <a href="rql.html" class="nav-cell nav-cta">Launch RQL</a>
+        <button id="mobile-menu-btn" class="nav-cell-btn mobile-menu-btn" aria-label="Toggle Menu" aria-expanded="false">MENU</button>
+      </div>
+    </nav>
+  </header>
+
+  <!-- Mobile Drawer -->
+  <div id="mobile-drawer" class="mobile-drawer" role="dialog" aria-modal="true" aria-label="Mobile Navigation">
+    <a href="index.html" class="nav-cell">Home</a>
+    <a href="apps.html" class="nav-cell">Apps (13)</a>
+    <a href="rql.html" class="nav-cell">RQL Studio</a>
+    <a href="download.html" class="nav-cell active">Download</a>
+    <a href="docs.html" class="nav-cell">Documentation</a>
+    <a href="https://github.com/kennyanju/plantainchips" target="_blank" rel="noopener noreferrer" class="nav-cell">GitHub Repo</a>
+  </div>
+
+  <main class="arch-container">
+    <span class="tick tick-top-left" aria-hidden="true"></span>
+    <span class="tick tick-top-right" aria-hidden="true"></span>
+    <span class="tick tick-bottom-left" aria-hidden="true"></span>
+    <span class="tick tick-bottom-right" aria-hidden="true"></span>
+
+    <!-- Hero Bay -->
+    <section class="hero-bay" aria-labelledby="download-heading">
+      <div class="hero-tag">
+        <span class="hero-tag-pulse" aria-hidden="true"></span>
+        <span>Cryptographically Verified · Zero Telemetry Overhead</span>
+      </div>
+      <h1 id="download-heading" class="hero-headline">
+        Native binaries for <span class="serif-word">every platform</span>.
+      </h1>
+      <p class="hero-lead">
+        Download LauncherSecure to manage, verify, and update the entire suite, or install individual standalone CLI and desktop binaries for macOS, Windows, Linux, and FreeBSD.
+      </p>
+    </section>
+
+    <!-- Eyebrow 01: Quick Install Terminal -->
+    <div class="section-eyebrow">
+      <div class="hud-label"><span class="hud-index">01</span> / Quick Terminal Installation</div>
+      <div class="hud-label">Verified Shell & Cargo Scripts</div>
+    </div>
+
+    <!-- Terminal Command Bay -->
+    <section class="rql-studio-bay" aria-label="Terminal Installation">
+      <div class="rql-container">
+        <div class="rql-header">
+          <div class="hud-label">Automated Shell Installer (macOS & Linux):</div>
+          <button class="btn btn-secondary btn-sm copy-btn" data-copy="curl -proto '=https' --tlsv1.2 -sSf https://plantainchips.pages.dev/install.sh | sh">Copy Command</button>
+        </div>
+        <div class="code-box">
+          # Download and install LauncherSecure for your detected platform:<br>
+          curl -proto '=https' --tlsv1.2 -sSf https://plantainchips.pages.dev/install.sh | sh<br><br>
+          # Or build from source using Cargo:<br>
+          cargo install --git https://github.com/kennyanju/plantainchips.git launchersecure
+        </div>
+      </div>
+    </section>
+
+    <!-- Eyebrow 02: Standalone Packages Matrix -->
+    <div class="section-eyebrow">
+      <div class="hud-label"><span class="hud-index">02</span> / Standalone Application Artifacts</div>
+      <div class="hud-label">Ed25519 Signed Releases · SHA-256 Checksum Audited</div>
+    </div>
+
+    <!-- Download Table -->
+    <section class="matrix-bay" aria-label="Downloads Table">
+      <table class="hud-table">
+        <thead>
+          <tr>
+            <th>Application</th>
+            <th>Pillar</th>
+            <th>Version</th>
+            <th>Platforms</th>
+            <th>Size</th>
+            <th>SHA-256 Digest</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>LauncherSecure</strong></td>
+            <td><span class="badge-pillar">MANAGER</span></td>
+            <td>v0.1.0</td>
+            <td>macOS, Win, Linux, FreeBSD</td>
+            <td>12.4 MB</td>
+            <td><code>e3b0c44...98fc</code> <button class="btn btn-secondary btn-sm copy-btn" data-copy="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855">Copy</button></td>
+            <td><a href="https://github.com/kennyanju/plantainchips/releases" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-sm">Download</a></td>
+          </tr>
+          <tr>
+            <td><strong>PostureSecure</strong></td>
+            <td><span class="badge-pillar">CSPM</span></td>
+            <td>v0.1.0</td>
+            <td>CLI + GUI + Wasm</td>
+            <td>14.1 MB</td>
+            <td><code>4f53cda...b120</code> <button class="btn btn-secondary btn-sm copy-btn" data-copy="4f53cdab120489ac876b5f4839ef429182376481923847a98b71234981723491">Copy</button></td>
+            <td><a href="https://github.com/kennyanju/plantainchips/releases" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">Download</a></td>
+          </tr>
+          <tr>
+            <td><strong>DataSecure</strong></td>
+            <td><span class="badge-pillar">DSPM</span></td>
+            <td>v0.1.0</td>
+            <td>CLI + GUI + Wasm</td>
+            <td>13.8 MB</td>
+            <td><code>9812bc4...a871</code> <button class="btn btn-secondary btn-sm copy-btn" data-copy="9812bc4a87123984719283749812374918273491827349182734918273491823">Copy</button></td>
+            <td><a href="https://github.com/kennyanju/plantainchips/releases" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">Download</a></td>
+          </tr>
+          <tr>
+            <td><strong>WorkloadSecure</strong></td>
+            <td><span class="badge-pillar">CWPP</span></td>
+            <td>v0.1.0</td>
+            <td>CLI + GUI + Wasm</td>
+            <td>15.2 MB</td>
+            <td><code>6719ab3...c498</code> <button class="btn btn-secondary btn-sm copy-btn" data-copy="6719ab3c49812739812739812739812739812739812739812739812739812739">Copy</button></td>
+            <td><a href="https://github.com/kennyanju/plantainchips/releases" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">Download</a></td>
+          </tr>
+          <tr>
+            <td><strong>IdentitySecure</strong></td>
+            <td><span class="badge-pillar">CIEM</span></td>
+            <td>v0.1.0</td>
+            <td>CLI + GUI + Wasm</td>
+            <td>13.5 MB</td>
+            <td><code>3819fa2...1109</code> <button class="btn btn-secondary btn-sm copy-btn" data-copy="3819fa2110928349182734918273491827349182734918273491827349182734">Copy</button></td>
+            <td><a href="https://github.com/kennyanju/plantainchips/releases" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">Download</a></td>
+          </tr>
+          <tr>
+            <td><strong>CodeSecure</strong></td>
+            <td><span class="badge-pillar">ASPM</span></td>
+            <td>v0.1.0</td>
+            <td>CLI + GUI + Wasm</td>
+            <td>14.6 MB</td>
+            <td><code>7198ba1...2983</code> <button class="btn btn-secondary btn-sm copy-btn" data-copy="7198ba1298347198237491827349182734918273491827349182734918273491">Copy</button></td>
+            <td><a href="https://github.com/kennyanju/plantainchips/releases" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">Download</a></td>
+          </tr>
+          <tr>
+            <td><strong>GraphSecure</strong></td>
+            <td><span class="badge-pillar">ATTACK GRAPH</span></td>
+            <td>v0.1.0</td>
+            <td>CLI + GUI + Wasm</td>
+            <td>16.8 MB</td>
+            <td><code>12983ab...9823</code> <button class="btn btn-secondary btn-sm copy-btn" data-copy="12983ab982347198273491827349182734918273491827349182734918273491">Copy</button></td>
+            <td><a href="https://github.com/kennyanju/plantainchips/releases" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">Download</a></td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- Footer Bay -->
+    <footer class="footer-bay">
+      <div class="footer-grid">
+        <div class="footer-col">
+          <h4>Release Integrity</h4>
+          <p class="app-desc">
+            All release packages are signed with Ed25519 offline keys and published with SHA-256 digests.
+          </p>
+        </div>
+        <div class="footer-col">
+          <h4>Navigation</h4>
+          <ul class="footer-links">
+            <li><a href="index.html">Home Overview</a></li>
+            <li><a href="apps.html">All 13 Applications</a></li>
+            <li><a href="rql.html">RQL Studio</a></li>
+            <li><a href="download.html">Download Matrix</a></li>
+            <li><a href="docs.html">Documentation</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h4>Release Repository</h4>
+          <ul class="footer-links">
+            <li><a href="https://github.com/kennyanju/plantainchips/releases" target="_blank" rel="noopener noreferrer">GitHub Releases</a></li>
+            <li><a href="https://github.com/kennyanju/plantainchips" target="_blank" rel="noopener noreferrer">Source Code</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h4>License</h4>
+          <p class="app-desc">Apache 2.0 & MIT Dual Licensed. Open source.</p>
+        </div>
+      </div>
+
+      <div class="legal-disclaimer">
+        <strong>Trademark Notice & Legal Disclaimer:</strong> CloudSecure is an independent open-source project. It is not affiliated with, sponsored by, or endorsed by Palo Alto Networks, Inc., Ivanti, or any other trademark owners.
+      </div>
+    </footer>
+  </main>
+
+  <script src="js/app.js"></script>
+</body>
+</html>

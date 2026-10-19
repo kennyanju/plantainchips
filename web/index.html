@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CloudSecure | Pure Rust Multi-Cloud CNAPP Suite</title>
+  <meta name="description" content="Thirteen security apps. One unified architecture. Rebuilt in 100% pure Rust. Open-source, local-first Cloud-Native Application Protection Platform.">
+  <link rel="stylesheet" href="css/design-system.css">
+  <link rel="stylesheet" href="css/layout.css">
+  <link rel="stylesheet" href="css/components.css">
+  <script src="js/theme.js"></script>
+</head>
+<body>
+
+  <!-- Top Sticky Navigation Bar -->
+  <header>
+    <nav class="site-nav" id="site-nav" aria-label="Main Navigation">
+      <div class="nav-cluster-left">
+        <a href="index.html" class="nav-logo" aria-label="CloudSecure Home">
+          <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polygon points="16,3 28,9 28,21 16,29 4,21 4,9" stroke="#C84B24" />
+            <polyline points="16,3 16,29" stroke="currentColor" stroke-dasharray="2 2" />
+            <polyline points="4,9 16,16 28,9" stroke="currentColor" />
+            <circle cx="16" cy="16" r="3" fill="#C84B24" stroke="none" />
+          </svg>
+          <span>CLOUDSECURE</span>
+        </a>
+        <a href="index.html" class="nav-cell active nav-mobile-keep">Home</a>
+        <a href="apps.html" class="nav-cell">Apps (13)</a>
+        <a href="rql.html" class="nav-cell">RQL Studio</a>
+        <a href="download.html" class="nav-cell">Download</a>
+        <a href="docs.html" class="nav-cell">Docs</a>
+      </div>
+
+      <div class="nav-cluster-right">
+        <a href="https://github.com/kennyanju/plantainchips" target="_blank" rel="noopener noreferrer" class="nav-cell" aria-label="GitHub Repository">GitHub</a>
+        <button id="theme-toggle-btn" class="nav-cell-btn" aria-label="Toggle light and dark mode">DARK</button>
+        <a href="rql.html" class="nav-cell nav-cta">Launch RQL</a>
+        <button id="mobile-menu-btn" class="nav-cell-btn mobile-menu-btn" aria-label="Toggle Menu" aria-expanded="false">MENU</button>
+      </div>
+    </nav>
+  </header>
+
+  <!-- Mobile Navigation Drawer -->
+  <div id="mobile-drawer" class="mobile-drawer" role="dialog" aria-modal="true" aria-label="Mobile Navigation">
+    <a href="index.html" class="nav-cell active">Home</a>
+    <a href="apps.html" class="nav-cell">Apps (13)</a>
+    <a href="rql.html" class="nav-cell">RQL Studio</a>
+    <a href="download.html" class="nav-cell">Download</a>
+    <a href="docs.html" class="nav-cell">Documentation</a>
+    <a href="https://github.com/kennyanju/plantainchips" target="_blank" rel="noopener noreferrer" class="nav-cell">GitHub Repo</a>
+  </div>
+
+  <!-- Central Architectural Bay -->
+  <main class="arch-container">
+    <span class="tick tick-top-left" aria-hidden="true"></span>
+    <span class="tick tick-top-right" aria-hidden="true"></span>
+    <span class="tick tick-bottom-left" aria-hidden="true"></span>
+    <span class="tick tick-bottom-right" aria-hidden="true"></span>
+
+    <!-- Hero Bay -->
+    <section class="hero-bay" aria-labelledby="hero-heading">
+      <div class="hero-tag">
+        <span class="hero-tag-pulse" aria-hidden="true"></span>
+        <span>Open-Source CNAPP In Pure Rust · Zero SaaS Lock-in</span>
+      </div>
+      <h1 id="hero-heading" class="hero-headline">
+        Thirteen security apps. One <span class="serif-word">unified architecture</span>.
+      </h1>
+      <p class="hero-lead">
+        Cloud security posture, sensitive data governance, workload protection, identity entitlement graphs, IaC scanning, and layer-7 API firewalls. Rebuilt from scratch in 100% pure Rust with native desktop interfaces, headless CLI, JSON-RPC, and Model Context Protocol automation.
+      </p>
+      <div class="hero-ctas">
+        <a href="download.html" class="btn btn-primary">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Download Launcher
+        </a>
+        <a href="apps.html" class="btn btn-secondary">Explore All 13 Apps</a>
+        <a href="rql.html" class="btn btn-secondary">Open Interactive RQL Studio</a>
+      </div>
+    </section>
+
+    <!-- Eyebrow 01: Interactive RQL Engine -->
+    <div class="section-eyebrow">
+      <div class="hud-label"><span class="hud-index">01</span> / Interactive Resource Query Engine</div>
+      <div class="hud-label">Sub-50ms AST Evaluation · Multi-Cloud Columnar Predicates</div>
+    </div>
+
+    <!-- RQL Studio Interactive Bay -->
+    <section class="rql-studio-bay" aria-label="Interactive Query Playground">
+      <div class="rql-container">
+        <div class="rql-header">
+          <div class="hud-label">Sample Security Presets:</div>
+          <div class="rql-presets">
+            <button class="rql-preset-btn" data-preset="s3_public">S3 Public Buckets</button>
+            <button class="rql-preset-btn" data-preset="iam_admin">Wildcard IAM Roles</button>
+            <button class="rql-preset-btn" data-preset="container_root">Container Root Exec</button>
+            <button class="rql-preset-btn" data-preset="pii_leak">Sensitive Data Exposure</button>
+            <button class="rql-preset-btn" data-preset="empty_example">Clean Scan (Zero Findings)</button>
+            <button class="rql-preset-btn" data-preset="error_example">Syntax Error (Recovery)</button>
+          </div>
+        </div>
+
+        <div class="rql-editor-wrap">
+          <textarea id="rql-editor-input" class="rql-input" aria-label="RQL Query Editor" spellcheck="false">config from cloud.resource where cloud.type = 'aws' and api.name = 'aws-s3-bucket' and json.rule = publicAccessBlockConfiguration.restrictPublicBuckets is false</textarea>
+        </div>
+
+        <div class="rql-statusbar">
+          <span id="rql-status-text">Status: Ready · Press Execute Query</span>
+          <button id="rql-run-btn" class="btn btn-primary btn-sm">Execute Query</button>
+        </div>
+
+        <div id="rql-output-container" class="rql-output-wrap" aria-live="polite">
+          <div class="state-box">
+            <div class="hud-label">Select a preset or click Execute Query</div>
+            <p class="state-desc">Evaluates real-time predicates against simulated AWS, Azure, GCP, and Kubernetes cloud inventories.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Eyebrow 02: Suite Directory -->
+    <div class="section-eyebrow">
+      <div class="hud-label"><span class="hud-index">02</span> / CloudSecure Suite Directory</div>
+      <div class="hud-label">14 Native Binaries · macOS · Windows · Linux · FreeBSD · Wasm</div>
+    </div>
+
+    <!-- App Showcase Grid (Featured 6 Apps) -->
+    <section class="app-grid" aria-label="Featured Applications">
+      <!-- 01 PostureSecure -->
+      <article class="app-card">
+        <div>
+          <div class="app-header">
+            <div class="app-identity">
+              <div class="app-icon-wrap" style="color: var(--ink-posture);">
+                <img src="images/apps/01-posture.svg" alt="" width="26" height="26" aria-hidden="true">
+              </div>
+              <div class="app-meta">
+                <span class="app-num">APP 01</span>
+                <h2 class="app-title">PostureSecure</h2>
+              </div>
+            </div>
+            <span class="badge-pillar">CSPM</span>
+          </div>
+          <p class="app-desc">
+            Multi-cloud configuration auditing for AWS, Azure, and GCP. Evaluates CIS benchmarks, detects drift from baseline, and synthesizes signed Terraform remediation diffs.
+          </p>
+          <ul class="app-capabilities">
+            <li>CIS AWS v3.0, Azure v2.1 & GCP v2.0</li>
+            <li>Out-of-band console drift detection</li>
+            <li>Deterministic Terraform fix generators</li>
+          </ul>
+        </div>
+        <div class="app-actions">
+          <a href="apps.html#posturesecure" class="btn btn-secondary btn-sm">View Spec</a>
+          <a href="rql.html" class="btn btn-primary btn-sm">Test in RQL</a>
+        </div>
+      </article>
+
+      <!-- 02 DataSecure -->
+      <article class="app-card">
+        <div>
+          <div class="app-header">
+            <div class="app-identity">
+              <div class="app-icon-wrap" style="color: var(--ink-data);">
+                <img src="images/apps/02-data.svg" alt="" width="26" height="26" aria-hidden="true">
+              </div>
+              <div class="app-meta">
+                <span class="app-num">APP 02</span>
+                <h2 class="app-title">DataSecure</h2>
+              </div>
+            </div>
+            <span class="badge-pillar">DSPM</span>
+          </div>
+          <p class="app-desc">
+            Sensitive data discovery and classification across object stores and databases. Inspects S3, RDS, Snowflake, and BigQuery for PII, PHI, and credentials with zero data egress.
+          </p>
+          <ul class="app-capabilities">
+            <li>120+ regex and Shannon entropy classifiers</li>
+            <li>Bucket exposure cross-referencing</li>
+            <li>Data detection and response (DDR) alerts</li>
+          </ul>
+        </div>
+        <div class="app-actions">
+          <a href="apps.html#datasecure" class="btn btn-secondary btn-sm">View Spec</a>
+          <a href="rql.html" class="btn btn-primary btn-sm">Test in RQL</a>
+        </div>
+      </article>
+
+      <!-- 03 WorkloadSecure -->
+      <article class="app-card">
+        <div>
+          <div class="app-header">
+            <div class="app-identity">
+              <div class="app-icon-wrap" style="color: var(--ink-workload);">
+                <img src="images/apps/03-workload.svg" alt="" width="26" height="26" aria-hidden="true">
+              </div>
+              <div class="app-meta">
+                <span class="app-num">APP 03</span>
+                <h2 class="app-title">WorkloadSecure</h2>
+              </div>
+            </div>
+            <span class="badge-pillar">CWPP</span>
+          </div>
+          <p class="app-desc">
+            Container, host, and serverless runtime protection. Inspects image layers, parses SBOM manifests, and monitors eBPF syscalls for anomaly detection.
+          </p>
+          <ul class="app-capabilities">
+            <li>OCI and Docker layer vulnerability scan</li>
+            <li>eBPF behavioral baseline profiling</li>
+            <li>Kubernetes admission controller integration</li>
+          </ul>
+        </div>
+        <div class="app-actions">
+          <a href="apps.html#workloadsecure" class="btn btn-secondary btn-sm">View Spec</a>
+          <a href="rql.html" class="btn btn-primary btn-sm">Test in RQL</a>
+        </div>
+      </article>
+
+      <!-- 04 IdentitySecure -->
+      <article class="app-card">
+        <div>
+          <div class="app-header">
+            <div class="app-identity">
+              <div class="app-icon-wrap" style="color: var(--ink-identity);">
+                <img src="images/apps/04-identity.svg" alt="" width="26" height="26" aria-hidden="true">
+              </div>
+              <div class="app-meta">
+                <span class="app-num">APP 04</span>
+                <h2 class="app-title">IdentitySecure</h2>
+              </div>
+            </div>
+            <span class="badge-pillar">CIEM</span>
+          </div>
+          <p class="app-desc">
+            Cloud infrastructure entitlement management. Computes effective permissions across IAM policies, identifies dormant privileges, and graphs privilege escalation paths.
+          </p>
+          <ul class="app-capabilities">
+            <li>Effective permission solver (P_eff)</li>
+            <li>Dormant credential and shadow admin triage</li>
+            <li>Least-privilege policy downscoper</li>
+          </ul>
+        </div>
+        <div class="app-actions">
+          <a href="apps.html#identitysecure" class="btn btn-secondary btn-sm">View Spec</a>
+          <a href="rql.html" class="btn btn-primary btn-sm">Test in RQL</a>
+        </div>
+      </article>
+
+      <!-- 05 CodeSecure -->
+      <article class="app-card">
+        <div>
+          <div class="app-header">
+            <div class="app-identity">
+              <div class="app-icon-wrap" style="color: var(--ink-code);">
+                <img src="images/apps/05-code.svg" alt="" width="26" height="26" aria-hidden="true">
+              </div>
+              <div class="app-meta">
+                <span class="app-num">APP 05</span>
+                <h2 class="app-title">CodeSecure</h2>
+              </div>
+            </div>
+            <span class="badge-pillar">ASPM</span>
+          </div>
+          <p class="app-desc">
+            Shift-left application security and Infrastructure-as-Code analysis. Scans Terraform, CloudFormation, Kubernetes YAML, and Dockerfiles with graph-linked rules.
+          </p>
+          <ul class="app-capabilities">
+            <li>Zero-interpreter HCL and YAML AST parser</li>
+            <li>CycloneDX 1.5 and SPDX 2.3 SBOM generation</li>
+            <li>One-click automated patch generator</li>
+          </ul>
+        </div>
+        <div class="app-actions">
+          <a href="apps.html#codesecure" class="btn btn-secondary btn-sm">View Spec</a>
+          <a href="rql.html" class="btn btn-primary btn-sm">Test in RQL</a>
+        </div>
+      </article>
+
+      <!-- 08 GraphSecure -->
+      <article class="app-card">
+        <div>
+          <div class="app-header">
+            <div class="app-identity">
+              <div class="app-icon-wrap" style="color: var(--ink-graph);">
+                <img src="images/apps/08-graph.svg" alt="" width="26" height="26" aria-hidden="true">
+              </div>
+              <div class="app-meta">
+                <span class="app-num">APP 08</span>
+                <h2 class="app-title">GraphSecure</h2>
+              </div>
+            </div>
+            <span class="badge-pillar">ATTACK GRAPH</span>
+          </div>
+          <p class="app-desc">
+            GPU-accelerated attack path engine. Correlates Internet exposure, vulnerable CVEs, overprivileged IAM roles, and sensitive data into verified exploitation chains.
+          </p>
+          <ul class="app-capabilities">
+            <li>GPU-instanced wgpu graph (50k+ nodes)</li>
+            <li>Dijkstra toxic-combination route finder</li>
+            <li>Choke point remediation priority score</li>
+          </ul>
+        </div>
+        <div class="app-actions">
+          <a href="apps.html#graphsecure" class="btn btn-secondary btn-sm">View Spec</a>
+          <a href="rql.html" class="btn btn-primary btn-sm">Test in RQL</a>
+        </div>
+      </article>
+    </section>
+
+    <!-- Eyebrow 03: Architecture Comparison -->
+    <div class="section-eyebrow">
+      <div class="hud-label"><span class="hud-index">03</span> / Architectural Comparison</div>
+      <div class="hud-label">Pure Rust Local Execution vs Traditional SaaS CNAPP</div>
+    </div>
+
+    <!-- Comparison Matrix Section -->
+    <section class="matrix-bay" aria-label="Comparison Table">
+      <table class="hud-table">
+        <thead>
+          <tr>
+            <th>Evaluation Dimension</th>
+            <th>Traditional SaaS CNAPPs</th>
+            <th>CloudSecure (Pure Rust Suite)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Data Privacy & Egress</strong></td>
+            <td>Requires shipping all cloud config, IAM state, and DB logs to vendor SaaS.</td>
+            <td><strong>Zero Egress.</strong> 100% local assessment on your workstation or air-gapped CI runner.</td>
+          </tr>
+          <tr>
+            <td><strong>Runtime Footprint</strong></td>
+            <td>Heavy JVM/Node wrappers or 250MB Electron desktop shells consuming 2GB RAM.</td>
+            <td><strong>Lightweight Native Rust.</strong> &lt; 15 MB binaries, &lt; 80 MB idle RAM, 120 FPS wgpu rendering.</td>
+          </tr>
+          <tr>
+            <td><strong>Agent & Automation DX</strong></td>
+            <td>Opaque web portals and rate-limited REST endpoints.</td>
+            <td><strong>4-Way Deterministic Bus.</strong> Full parity across GUI, CLI, JSON-RPC, and Model Context Protocol.</td>
+          </tr>
+          <tr>
+            <td><strong>Query Language</strong></td>
+            <td>Proprietary SaaS DSL locked behind annual enterprise subscriptions.</td>
+            <td><strong>Open RQL.</strong> Zero-copy winnow parser and planner running locally on open schemas.</td>
+          </tr>
+          <tr>
+            <td><strong>Licensing & Freedom</strong></td>
+            <td>Monolithic multi-tenant SaaS contracts starting at five figures.</td>
+            <td><strong>100% Free & Open Source</strong> under Apache 2.0 and MIT licenses.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- Eyebrow 04: Launcher & Downloads -->
+    <div class="section-eyebrow">
+      <div class="hud-label"><span class="hud-index">04</span> / Suite Manager & Verification</div>
+      <div class="hud-label">Ed25519 Signed Releases · SHA-256 Checksum Audited</div>
+    </div>
+
+    <!-- Launcher Download Callout -->
+    <section class="hero-bay" style="background-color: var(--surface);">
+      <div class="app-identity" style="margin-bottom: 1.5rem;">
+        <div class="app-icon-wrap" style="color: var(--accent-ink); width: 56px; height: 56px;">
+          <img src="images/apps/00-launcher.svg" alt="" width="34" height="34" aria-hidden="true">
+        </div>
+        <div class="app-meta">
+          <span class="app-num">APP 00</span>
+          <h2 class="app-title" style="font-size: 1.75rem;">LauncherSecure</h2>
+          <span class="hud-label">One Installer for All 13 Security Applications</span>
+        </div>
+      </div>
+      <p class="hero-lead">
+        LauncherSecure inspects your CPU architecture, verifies cryptographic Ed25519 signatures, checks streaming SHA-256 digests, and installs or updates the entire 13-app suite with zero stranded dependencies.
+      </p>
+      <div class="hero-ctas">
+        <a href="download.html" class="btn btn-primary">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Download LauncherSecure
+        </a>
+        <a href="docs.html" class="btn btn-secondary">Read MCP & CLI Setup Guide</a>
+      </div>
+    </section>
+
+    <!-- Footer Bay -->
+    <footer class="footer-bay">
+      <div class="footer-grid">
+        <div class="footer-col">
+          <h4>CloudSecure Suite</h4>
+          <p class="app-desc" style="margin-bottom: 1rem;">
+            An open-source clean-room project delivering local-first cloud security tools built in 100% pure Rust.
+          </p>
+          <div class="hud-label">Designed for Cloudflare Pages Hosting</div>
+        </div>
+        <div class="footer-col">
+          <h4>Navigation</h4>
+          <ul class="footer-links">
+            <li><a href="index.html">Home Overview</a></li>
+            <li><a href="apps.html">All 13 Applications</a></li>
+            <li><a href="rql.html">Interactive RQL Studio</a></li>
+            <li><a href="download.html">Download Matrix</a></li>
+            <li><a href="docs.html">Documentation & MCP</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h4>Repositories</h4>
+          <ul class="footer-links">
+            <li><a href="https://github.com/kennyanju/plantainchips" target="_blank" rel="noopener noreferrer">GitHub (PlantainChips)</a></li>
+            <li><a href="https://github.com/kennyanju/plantainchips/blob/main/DESIGN.md" target="_blank" rel="noopener noreferrer">Design System Contract</a></li>
+            <li><a href="https://github.com/kennyanju/plantainchips/blob/main/project-specs/cloudsecure-master-spec.md" target="_blank" rel="noopener noreferrer">System Architecture</a></li>
+            <li><a href="https://github.com/kennyanju/plantainchips/blob/main/project-tasks/cloudsecure-tasklist.md" target="_blank" rel="noopener noreferrer">Execution Tasklist</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h4>License</h4>
+          <p class="app-desc">
+            Dual-licensed under Apache 2.0 and MIT. Free for commercial and personal security engineering.
+          </p>
+        </div>
+      </div>
+
+      <div class="legal-disclaimer">
+        <strong>Trademark Notice & Legal Disclaimer:</strong> CloudSecure and its component applications (PostureSecure, DataSecure, WorkloadSecure, IdentitySecure, CodeSecure, WaasSecure, ThreatSecure, GraphSecure, NetSecure, AiSecure, SupplySecure, PolicySecure, ComplianceSecure, and LauncherSecure) are an independent, clean-room open-source project. All application names end with the descriptive suffix "-secure". CloudSecure is not affiliated with, sponsored by, authorized by, or endorsed by Palo Alto Networks, Inc., Ivanti, or any of their affiliates. All brand names, logos, and trademarks (including Prisma Cloud, Cortex, Checkov, PAN-OS, and Pulse Secure) are the property of their respective owners.
+      </div>
+    </footer>
+  </main>
+
+  <script src="js/app.js"></script>
+</body>
+</html>

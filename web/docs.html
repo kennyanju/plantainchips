@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Documentation & Agent MCP | CloudSecure Suite</title>
+  <meta name="description" content="Technical documentation, Model Context Protocol (MCP) server configuration, and CLI reference for CloudSecure.">
+  <link rel="stylesheet" href="css/design-system.css">
+  <link rel="stylesheet" href="css/layout.css">
+  <link rel="stylesheet" href="css/components.css">
+  <script src="js/theme.js"></script>
+</head>
+<body>
+
+  <!-- Top Navigation -->
+  <header>
+    <nav class="site-nav" id="site-nav" aria-label="Main Navigation">
+      <div class="nav-cluster-left">
+        <a href="index.html" class="nav-logo" aria-label="CloudSecure Home">
+          <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polygon points="16,3 28,9 28,21 16,29 4,21 4,9" stroke="#C84B24" />
+            <polyline points="16,3 16,29" stroke="currentColor" stroke-dasharray="2 2" />
+            <polyline points="4,9 16,16 28,9" stroke="currentColor" />
+            <circle cx="16" cy="16" r="3" fill="#C84B24" stroke="none" />
+          </svg>
+          <span>CLOUDSECURE</span>
+        </a>
+        <a href="index.html" class="nav-cell">Home</a>
+        <a href="apps.html" class="nav-cell">Apps (13)</a>
+        <a href="rql.html" class="nav-cell">RQL Studio</a>
+        <a href="download.html" class="nav-cell">Download</a>
+        <a href="docs.html" class="nav-cell active nav-mobile-keep">Docs</a>
+      </div>
+
+      <div class="nav-cluster-right">
+        <a href="https://github.com/kennyanju/plantainchips" target="_blank" rel="noopener noreferrer" class="nav-cell" aria-label="GitHub Repository">GitHub</a>
+        <button id="theme-toggle-btn" class="nav-cell-btn" aria-label="Toggle light and dark mode">DARK</button>
+        <a href="rql.html" class="nav-cell nav-cta">Launch RQL</a>
+        <button id="mobile-menu-btn" class="nav-cell-btn mobile-menu-btn" aria-label="Toggle Menu" aria-expanded="false">MENU</button>
+      </div>
+    </nav>
+  </header>
+
+  <!-- Mobile Drawer -->
+  <div id="mobile-drawer" class="mobile-drawer" role="dialog" aria-modal="true" aria-label="Mobile Navigation">
+    <a href="index.html" class="nav-cell">Home</a>
+    <a href="apps.html" class="nav-cell">Apps (13)</a>
+    <a href="rql.html" class="nav-cell">RQL Studio</a>
+    <a href="download.html" class="nav-cell">Download</a>
+    <a href="docs.html" class="nav-cell active">Documentation</a>
+    <a href="https://github.com/kennyanju/plantainchips" target="_blank" rel="noopener noreferrer" class="nav-cell">GitHub Repo</a>
+  </div>
+
+  <main class="arch-container">
+    <span class="tick tick-top-left" aria-hidden="true"></span>
+    <span class="tick tick-top-right" aria-hidden="true"></span>
+    <span class="tick tick-bottom-left" aria-hidden="true"></span>
+    <span class="tick tick-bottom-right" aria-hidden="true"></span>
+
+    <!-- Hero Bay -->
+    <section class="hero-bay" aria-labelledby="docs-heading">
+      <div class="hero-tag">
+        <span class="hero-tag-pulse" aria-hidden="true"></span>
+        <span>Built for Autonomous AI Agents & SecOps Engineers</span>
+      </div>
+      <h1 id="docs-heading" class="hero-headline">
+        Technical manual & <span class="serif-word">agent protocols</span>.
+      </h1>
+      <p class="hero-lead">
+        Learn how CloudSecure applications operate as native Model Context Protocol (MCP) servers, high-speed CLI tools, and deterministic JSON-RPC automation channels.
+      </p>
+    </section>
+
+    <!-- Eyebrow 01: MCP Setup -->
+    <div class="section-eyebrow">
+      <div class="hud-label"><span class="hud-index">01</span> / Model Context Protocol (MCP) Setup</div>
+      <div class="hud-label">Claude Desktop · Cursor · Windsurf · Gemini CLI Integration</div>
+    </div>
+
+    <!-- MCP Section -->
+    <section class="rql-studio-bay" aria-label="MCP Integration">
+      <p class="app-desc" style="margin-bottom: 1.25rem;">
+        Add CloudSecure tools directly to your AI agent environment. Every application implements an MCP server over stdio exposing <code>query_rql</code>, <code>get_findings</code>, <code>generate_remediation</code>, and offscreen screenshot rendering:
+      </p>
+
+      <div class="rql-container">
+        <div class="rql-header">
+          <div class="hud-label">claude_desktop_config.json / cursor_config.json:</div>
+          <button class="btn btn-secondary btn-sm copy-btn" data-copy='{
+  "mcpServers": {
+    "cloudsecure-posture": {
+      "command": "posturesecure-cli",
+      "args": ["--mcp"]
+    },
+    "cloudsecure-graph": {
+      "command": "graphsecure-cli",
+      "args": ["--mcp"]
+    },
+    "cloudsecure-identity": {
+      "command": "identitysecure-cli",
+      "args": ["--mcp"]
+    }
+  }
+}'>Copy JSON</button>
+        </div>
+        <div class="code-box">
+{<br>
+&nbsp;&nbsp;"mcpServers": {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;"cloudsecure-posture": {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"command": "posturesecure-cli",<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"args": ["--mcp"]<br>
+&nbsp;&nbsp;&nbsp;&nbsp;},<br>
+&nbsp;&nbsp;&nbsp;&nbsp;"cloudsecure-graph": {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"command": "graphsecure-cli",<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"args": ["--mcp"]<br>
+&nbsp;&nbsp;&nbsp;&nbsp;},<br>
+&nbsp;&nbsp;&nbsp;&nbsp;"cloudsecure-identity": {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"command": "identitysecure-cli",<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"args": ["--mcp"]<br>
+&nbsp;&nbsp;&nbsp;&nbsp;}<br>
+&nbsp;&nbsp;}<br>
+}
+        </div>
+      </div>
+    </section>
+
+    <!-- Eyebrow 02: Headless CLI Reference -->
+    <div class="section-eyebrow">
+      <div class="hud-label"><span class="hud-index">02</span> / Headless CLI Reference & Formatting</div>
+      <div class="hud-label">CI/CD Gate Integration · SARIF & JSON Outputs</div>
+    </div>
+
+    <!-- CLI Commands Bay -->
+    <section class="matrix-bay" aria-label="CLI Reference">
+      <table class="hud-table">
+        <thead>
+          <tr>
+            <th>Command</th>
+            <th>Description</th>
+            <th>Sample Invocation</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>scan</code></td>
+            <td>Run compliance or vulnerability assessment against target snapshot or path.</td>
+            <td><code>posturesecure-cli scan --target ./cloud-state.json --benchmark cis-aws-v3.0</code></td>
+          </tr>
+          <tr>
+            <td><code>query</code></td>
+            <td>Evaluate an arbitrary RQL query against local graph or inventory.</td>
+            <td><code>policysecure-cli query "config from cloud.resource where ..."</code></td>
+          </tr>
+          <tr>
+            <td><code>remediate</code></td>
+            <td>Synthesize reviewable, signed Terraform or CLI patch fix diff.</td>
+            <td><code>codesecure-cli remediate --rule IAC_AWS_042 --out ./fix.patch</code></td>
+          </tr>
+          <tr>
+            <td><code>--format</code></td>
+            <td>Control stdout output serialization (table, json, sarif, csv, csec).</td>
+            <td><code>posturesecure-cli scan --format sarif &gt; results.sarif</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- Footer Bay -->
+    <footer class="footer-bay">
+      <div class="footer-grid">
+        <div class="footer-col">
+          <h4>Documentation</h4>
+          <p class="app-desc">
+            Complete technical references and developer guides for CloudSecure and the 14 pure Rust applications.
+          </p>
+        </div>
+        <div class="footer-col">
+          <h4>Navigation</h4>
+          <ul class="footer-links">
+            <li><a href="index.html">Home Overview</a></li>
+            <li><a href="apps.html">All 13 Applications</a></li>
+            <li><a href="rql.html">RQL Studio</a></li>
+            <li><a href="download.html">Download Matrix</a></li>
+            <li><a href="docs.html">Documentation</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h4>Repository Docs</h4>
+          <ul class="footer-links">
+            <li><a href="https://github.com/kennyanju/plantainchips/blob/main/project-docs/cloudsecure-architecture.md" target="_blank" rel="noopener noreferrer">Architecture Doc</a></li>
+            <li><a href="https://github.com/kennyanju/plantainchips/blob/main/project-specs/cloudsecure-master-spec.md" target="_blank" rel="noopener noreferrer">Master Spec</a></li>
+            <li><a href="https://github.com/kennyanju/plantainchips" target="_blank" rel="noopener noreferrer">GitHub Repo</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h4>License</h4>
+          <p class="app-desc">Apache 2.0 & MIT Dual Licensed. Open source.</p>
+        </div>
+      </div>
+
+      <div class="legal-disclaimer">
+        <strong>Trademark Notice & Legal Disclaimer:</strong> CloudSecure is an independent open-source project. It is not affiliated with, sponsored by, or endorsed by Palo Alto Networks, Inc., Ivanti, or any other trademark owners.
+      </div>
+    </footer>
+  </main>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
