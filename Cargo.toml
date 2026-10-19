@@ -10,6 +10,8 @@ members = [
     "apps/posturesecure-cli",
     "apps/datasecure",
     "apps/datasecure-cli",
+    "apps/launchersecure",
+    "apps/launchersecure-cli",
 ]
 
 [workspace.package]

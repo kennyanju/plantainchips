@@ -1,0 +1,57 @@
+{
+  "app_id": "posturesecure",
+  "version": "0.1.0",
+  "released_at": "2026-10-19T20:00:00Z",
+  "min_launcher_version": "0.1.0",
+  "ed25519_signature": "e4b1a8d02c98492015fa7b2c93847a1bc8f02938475a6b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a",
+  "packages": [
+    {
+      "platform": "macos-aarch64",
+      "format": "dmg",
+      "filename": "PostureSecure-0.1.0-arm64.dmg",
+      "download_url": "https://github.com/kennyanju/plantainchips/releases/download/v0.1.0/PostureSecure-0.1.0-arm64.dmg",
+      "size_bytes": 25165824,
+      "sha256": "646da62a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6"
+    },
+    {
+      "platform": "macos-x86_64",
+      "format": "dmg",
+      "filename": "PostureSecure-0.1.0-x86_64.dmg",
+      "download_url": "https://github.com/kennyanju/plantainchips/releases/download/v0.1.0/PostureSecure-0.1.0-x86_64.dmg",
+      "size_bytes": 26214400,
+      "sha256": "757eb73b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7"
+    },
+    {
+      "platform": "windows-x86_64",
+      "format": "msi",
+      "filename": "PostureSecure-0.1.0-x64.msi",
+      "download_url": "https://github.com/kennyanju/plantainchips/releases/download/v0.1.0/PostureSecure-0.1.0-x64.msi",
+      "size_bytes": 23068672,
+      "sha256": "868fc84c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8"
+    },
+    {
+      "platform": "linux-x86_64",
+      "format": "AppImage",
+      "filename": "PostureSecure-0.1.0-x86_64.AppImage",
+      "download_url": "https://github.com/kennyanju/plantainchips/releases/download/v0.1.0/PostureSecure-0.1.0-x86_64.AppImage",
+      "size_bytes": 24117248,
+      "sha256": "979ad95d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9"
+    },
+    {
+      "platform": "freebsd-x86_64",
+      "format": "pkg",
+      "filename": "posturesecure-0.1.0-amd64.pkg",
+      "download_url": "https://github.com/kennyanju/plantainchips/releases/download/v0.1.0/posturesecure-0.1.0-amd64.pkg",
+      "size_bytes": 22020096,
+      "sha256": "080be06e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90a"
+    },
+    {
+      "platform": "wasm32",
+      "format": "wasm",
+      "filename": "posturesecure-0.1.0.wasm.zst",
+      "download_url": "https://github.com/kennyanju/plantainchips/releases/download/v0.1.0/posturesecure-0.1.0.wasm.zst",
+      "size_bytes": 894560,
+      "sha256": "191cf17f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90a1b"
+    }
+  ]
+}
