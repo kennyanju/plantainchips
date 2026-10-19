@@ -1,0 +1,485 @@
+#!/usr/bin/env python3
+import sys, os, json, argparse, hashlib
+
+def matches_path_template(spec_path, traffic_uri):
+    traffic_path = traffic_uri.split("?")[0]
+    s_segs = [s for s in spec_path.strip("/").split("/") if s]
+    t_segs = [t for t in traffic_path.strip("/").split("/") if t]
+    if len(s_segs) != len(t_segs):
+        return False
+    for s, t in zip(s_segs, t_segs):
+        if s.startswith("{") and s.endswith("}"):
+            continue
+        if s.lower() != t.lower():
+            return False
+    return True
+
+def evaluate_traffic(record, spec=None):
+    violations = []
+    uri = record.get("uri", "")
+    method = record.get("method", "GET").upper()
+    client_ip = record.get("client_ip", "127.0.0.1")
+    headers = {k.lower(): v for k, v in record.get("headers", {}).items()}
+    query_params = record.get("query_params", {})
+    req_body = record.get("request_body")
+    resp_headers = {k.lower(): v for k, v in record.get("response_headers", {}).items()}
+    resp_body = record.get("response_body")
+    user_identity = record.get("user_identity")
+
+    # 1. API2:2023: Broken Authentication
+    auth_hdr = headers.get("authorization")
+    requires_auth = False
+    if spec:
+        for ep in spec.get("endpoints", []):
+            if matches_path_template(ep.get("path", ""), uri) and ep.get("method", "").upper() == method:
+                requires_auth = ep.get("requires_auth", False)
+                break
+    else:
+        requires_auth = uri.startswith("/api/")
+
+    if requires_auth:
+        if not auth_hdr or auth_hdr in ("Bearer null", "Bearer undefined", ""):
+            violations.append({
+                "rule_id": "API2:2023",
+                "category": "Broken Authentication",
+                "severity": "CRITICAL",
+                "title": "Missing or Unauthenticated Bearer Token",
+                "message": f"Endpoint '{uri}' requires authentication but request lacked a valid Authorization header.",
+                "traffic_id": record.get("id", ""),
+                "endpoint": uri,
+                "method": method,
+                "evidence_detail": "Authorization header is missing or contains null token",
+                "suggested_waf_rule": f'http.request.uri.path eq "{uri}" and not any(http.request.headers["authorization"][*] matches "^Bearer [A-Za-z0-9-_]+\\\\.[A-Za-z0-9-_]+\\\\.[A-Za-z0-9-_]+$")'
+            })
+
+    # 2. API1:2023: Broken Object Level Authorization (BOLA/IDOR)
+    if user_identity and "/users/" in uri:
+        parts = uri.split("/")
+        if "users" in parts:
+            idx = parts.index("users")
+            if idx + 1 < len(parts):
+                target_user_id = parts[idx + 1]
+                caller_user_id = user_identity.get("user_id")
+                caller_role = user_identity.get("role", "customer")
+                if target_user_id != caller_user_id and caller_role != "admin":
+                    violations.append({
+                        "rule_id": "API1:2023",
+                        "category": "Broken Object Level Authorization (BOLA)",
+                        "severity": "CRITICAL",
+                        "title": "Cross-Tenant Object Access Disallowed (BOLA/IDOR)",
+                        "message": f"User '{caller_user_id}' with role '{caller_role}' attempted to access object belonging to user '{target_user_id}'.",
+                        "traffic_id": record.get("id", ""),
+                        "endpoint": uri,
+                        "method": method,
+                        "evidence_detail": f"Token user_id='{caller_user_id}' differs from path target_user_id='{target_user_id}'",
+                        "suggested_waf_rule": "Enforce JWT claim validation at API gateway filter layer"
+                    })
+
+    # 3. API3:2023: Broken Object Property Level Authorization (Mass Assignment & Excessive Data Exposure)
+    if req_body and isinstance(req_body, dict):
+        dangerous_properties = ["is_admin", "role", "is_verified", "billing_tier", "balance", "permissions"]
+        for prop in dangerous_properties:
+            if prop in req_body:
+                violations.append({
+                    "rule_id": "API3:2023",
+                    "category": "Broken Object Property Level Authorization (Mass Assignment)",
+                    "severity": "HIGH",
+                    "title": f"Mass Assignment Attempt for Sensitive Property '{prop}'",
+                    "message": f"Client supplied privileged property '{prop}' in request payload to endpoint '{uri}'.",
+                    "traffic_id": record.get("id", ""),
+                    "endpoint": uri,
+                    "method": method,
+                    "evidence_detail": f'Request body contains sensitive field: "{prop}"',
+                    "suggested_waf_rule": f'http.request.uri.path eq "{uri}" and http.request.body.raw contains "\\"{prop}\\""'
+                })
+
+    # Excessive Data Exposure in response
+    if resp_body:
+        resp_str = json.dumps(resp_body)
+        for token in ["password_hash", "private_key", "ssn", "secret_key"]:
+            if token in resp_str:
+                violations.append({
+                    "rule_id": "API3:2023",
+                    "category": "Broken Object Property Level Authorization (Excessive Data Exposure)",
+                    "severity": "CRITICAL",
+                    "title": f"API Exposes Sensitive Property '{token}' in Response",
+                    "message": f"Endpoint '{uri}' returned sensitive credential or personal identifier in response body.",
+                    "traffic_id": record.get("id", ""),
+                    "endpoint": uri,
+                    "method": method,
+                    "evidence_detail": f"Response body contains property '{token}'",
+                    "suggested_waf_rule": None
+                })
+
+    # 4. API4:2023: Unrestricted Resource Consumption
+    if "limit" in query_params:
+        try:
+            limit_val = int(query_params["limit"])
+            if limit_val > 1000:
+                violations.append({
+                    "rule_id": "API4:2023",
+                    "category": "Unrestricted Resource Consumption",
+                    "severity": "MEDIUM",
+                    "title": "Excessive Collection Query Pagination Limit",
+                    "message": f"Request specified pagination limit of {limit_val} items, which exceeds the max allowed limit of 1000.",
+                    "traffic_id": record.get("id", ""),
+                    "endpoint": uri,
+                    "method": method,
+                    "evidence_detail": f"Query parameter limit={limit_val}",
+                    "suggested_waf_rule": 'http.request.uri.query contains "limit=" and int(http.request.uri.args["limit"][0]) > 1000'
+                })
+        except ValueError:
+            pass
+
+    # 5. API5:2023: Broken Function Level Authorization (BFLA)
+    if uri.startswith("/admin/") or uri.startswith("/api/internal/"):
+        role = user_identity.get("role", "anonymous") if user_identity else "anonymous"
+        if role not in ("admin", "superadmin"):
+            violations.append({
+                "rule_id": "API5:2023",
+                "category": "Broken Function Level Authorization (BFLA)",
+                "severity": "CRITICAL",
+                "title": "Unauthorized Role Accessed Administrative Function",
+                "message": f"User with role '{role}' attempted to access privileged function '{uri}'.",
+                "traffic_id": record.get("id", ""),
+                "endpoint": uri,
+                "method": method,
+                "evidence_detail": f"Role '{role}' denied for URI path '{uri}'",
+                "suggested_waf_rule": f'http.request.uri.path contains "{uri}" and not ip.src in {{10.0.0.0/8, 172.16.0.0/12}}'
+            })
+
+    # 6. API8:2023: Security Misconfiguration
+    if resp_headers.get("access-control-allow-origin") == "*" and "access-control-allow-credentials" in resp_headers:
+        violations.append({
+            "rule_id": "API8:2023",
+            "category": "Security Misconfiguration",
+            "severity": "HIGH",
+            "title": "Insecure CORS Policy Combining Wildcard Origin and Credentials",
+            "message": "Access-Control-Allow-Origin: * combined with credentials allows unauthorized cross-origin reading.",
+            "traffic_id": record.get("id", ""),
+            "endpoint": uri,
+            "method": method,
+            "evidence_detail": "Access-Control-Allow-Origin: *; Access-Control-Allow-Credentials: true",
+            "suggested_waf_rule": None
+        })
+
+    # 7. API9:2023: Improper Inventory Management (Shadow & Zombie APIs)
+    if spec:
+        matched_ep = None
+        for ep in spec.get("endpoints", []):
+            if matches_path_template(ep.get("path", ""), uri) and ep.get("method", "").upper() == method:
+                matched_ep = ep
+                break
+
+        if not matched_ep:
+            violations.append({
+                "rule_id": "API9:2023",
+                "category": "Improper Inventory Management (Shadow API)",
+                "severity": "HIGH",
+                "title": "Shadow API Endpoint Undocumented in OpenAPI Specification",
+                "message": f"Observed HTTP {method} '{uri}' in live production traffic, but endpoint is missing from OpenAPI 3.x catalog.",
+                "traffic_id": record.get("id", ""),
+                "endpoint": uri,
+                "method": method,
+                "evidence_detail": "Endpoint not documented in active OpenAPI spec",
+                "suggested_waf_rule": f"Block or route undocumented endpoint '{uri}' to quarantine inspection"
+            })
+        elif matched_ep.get("deprecated", False):
+            violations.append({
+                "rule_id": "API9:2023",
+                "category": "Improper Inventory Management (Zombie API)",
+                "severity": "MEDIUM",
+                "title": "Deprecated Zombie API Endpoint Receiving Live Traffic",
+                "message": f"Endpoint HTTP {method} '{uri}' is deprecated in specification but continues to receive incoming requests.",
+                "traffic_id": record.get("id", ""),
+                "endpoint": uri,
+                "method": method,
+                "evidence_detail": "Endpoint marked deprecated=true in specification",
+                "suggested_waf_rule": None
+            })
+
+    return violations
+
+def synthesize_waf_rules(violations):
+    cf_rules = []
+    aws_rules = []
+
+    for idx, v in enumerate(violations):
+        rule = v.get("suggested_waf_rule")
+        if rule and rule.startswith("http."):
+            cf_rules.append(f"({rule})")
+        if v.get("rule_id") == "API5:2023":
+            aws_rules.append({
+                "Name": f"BlockAdminUri-{idx}",
+                "Priority": idx + 1,
+                "Action": { "Block": {} },
+                "VisibilityConfig": {
+                    "SampledRequestsEnabled": True,
+                    "CloudWatchMetricsEnabled": True,
+                    "MetricName": f"waas-admin-block-{idx}"
+                },
+                "Statement": {
+                    "ByteMatchStatement": {
+                        "SearchString": v["endpoint"],
+                        "FieldToMatch": { "UriPath": {} },
+                        "TextTransformations": [{ "Priority": 0, "Type": "LOWERCASE" }],
+                        "PositionalConstraint": "STARTS_WITH"
+                    }
+                }
+            })
+
+    cf_expr = " or\n".join(cf_rules) if cf_rules else "# No custom WAF rules required for current clean traffic baseline"
+    aws_group = {
+        "Name": "CloudSecure-WAF-RuleGroup",
+        "Scope": "REGIONAL",
+        "Capacity": 250,
+        "Rules": aws_rules
+    }
+    return cf_expr, json.dumps(aws_group, indent=2)
+
+def run_mcp():
+    for line in sys.stdin:
+        if not line.strip():
+            continue
+        try:
+            req = json.loads(line)
+        except Exception:
+            continue
+        req_id = req.get("id")
+        method = req.get("method")
+
+        if method == "initialize":
+            resp = {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {"tools": {}},
+                    "serverInfo": {"name": "waassecure-mcp", "version": "0.1.0"}
+                }
+            }
+        elif method == "tools/list":
+            resp = {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "tools": [
+                        {
+                            "name": "waas_inspect_traffic",
+                            "description": "Inspect API traffic records against OWASP API Security Top 10 vulnerabilities (BOLA, Broken Auth, Mass Assignment, BFLA, Misconfiguration)",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "traffic_json": {"type": "string"},
+                                    "spec_json": {"type": "string"}
+                                },
+                                "required": ["traffic_json"]
+                            }
+                        },
+                        {
+                            "name": "waas_detect_openapi_drift",
+                            "description": "Detect undocumented Shadow APIs and deprecated Zombie APIs by contrasting traffic with OpenAPI specification",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "traffic_json": {"type": "string"},
+                                    "spec_json": {"type": "string"}
+                                },
+                                "required": ["traffic_json", "spec_json"]
+                            }
+                        },
+                        {
+                            "name": "waas_synthesize_waf_rules",
+                            "description": "Synthesize Cloudflare WAF expressions and AWS WAF rule groups from detected API violations",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "traffic_json": {"type": "string"}
+                                },
+                                "required": ["traffic_json"]
+                            }
+                        }
+                    ]
+                }
+            }
+        elif method == "tools/call":
+            params = req.get("params", {})
+            name = params.get("name")
+            args = params.get("arguments", {})
+
+            if name == "waas_inspect_traffic":
+                traffic_raw = args.get("traffic_json", "[]")
+                spec_raw = args.get("spec_json")
+                try:
+                    traffic = json.loads(traffic_raw)
+                    spec = json.loads(spec_raw) if spec_raw else None
+                    violations = []
+                    for r in traffic:
+                        violations.extend(evaluate_traffic(r, spec))
+                    tool_res = {
+                        "traffic_records_scanned": len(traffic),
+                        "findings_count": len(violations),
+                        "findings": violations
+                    }
+                except Exception as e:
+                    tool_res = {"error": str(e)}
+
+            elif name == "waas_detect_openapi_drift":
+                traffic_raw = args.get("traffic_json", "[]")
+                spec_raw = args.get("spec_json", "{}")
+                try:
+                    traffic = json.loads(traffic_raw)
+                    spec = json.loads(spec_raw)
+                    violations = []
+                    for r in traffic:
+                        violations.extend(evaluate_traffic(r, spec))
+                    drift = [v for v in violations if v["rule_id"] == "API9:2023"]
+                    tool_res = {
+                        "drift_count": len(drift),
+                        "drift_findings": drift
+                    }
+                except Exception as e:
+                    tool_res = {"error": str(e)}
+
+            elif name == "waas_synthesize_waf_rules":
+                traffic_raw = args.get("traffic_json", "[]")
+                try:
+                    traffic = json.loads(traffic_raw)
+                    violations = []
+                    for r in traffic:
+                        violations.extend(evaluate_traffic(r, None))
+                    cf_expr, aws_group = synthesize_waf_rules(violations)
+                    tool_res = {
+                        "cloudflare_expression": cf_expr,
+                        "aws_waf_rule_json": aws_group
+                    }
+                except Exception as e:
+                    tool_res = {"error": str(e)}
+
+            else:
+                tool_res = {"error": f"Unknown tool: {name}"}
+
+            resp = {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "content": [{"type": "text", "text": json.dumps(tool_res, indent=2)}]
+                }
+            }
+        else:
+            resp = {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": "Method not found"}}
+
+        sys.stdout.write(json.dumps(resp) + "\n")
+        sys.stdout.flush()
+
+def main():
+    parser = argparse.ArgumentParser(description="WaasSecure CLI: Web Application & API Security Engine")
+    parser.add_argument("--mcp", action="store_true", help="Run Model Context Protocol stdio server")
+    subparsers = parser.add_subparsers(dest="subcommand")
+
+    scan_p = subparsers.add_parser("scan", help="Inspect API traffic logs against OWASP API rules")
+    scan_p.add_argument("--traffic", "-t", required=True, help="Path to API traffic logs JSON")
+    scan_p.add_argument("--spec", "-s", help="Path to OpenAPI 3.x specification JSON")
+    scan_p.add_argument("--format", "-f", choices=["table", "json", "sarif", "csv"], default="table")
+
+    drift_p = subparsers.add_parser("drift", help="Detect OpenAPI specification drift")
+    drift_p.add_argument("--traffic", "-t", required=True, help="Path to API traffic logs JSON")
+    drift_p.add_argument("--spec", "-s", required=True, help="Path to OpenAPI 3.x specification JSON")
+
+    waf_p = subparsers.add_parser("waf-rules", help="Synthesize Cloudflare and AWS WAF rules")
+    waf_p.add_argument("--traffic", "-t", required=True, help="Path to API traffic logs JSON")
+    waf_p.add_argument("--target", choices=["cloudflare", "aws", "all"], default="all")
+
+    args = parser.parse_args()
+    if args.mcp:
+        run_mcp()
+        return
+
+    if args.subcommand == "scan":
+        with open(args.traffic, "r", encoding="utf-8") as f:
+            traffic = json.load(f)
+        spec = None
+        if args.spec:
+            with open(args.spec, "r", encoding="utf-8") as f:
+                spec = json.load(f)
+
+        all_violations = []
+        for r in traffic:
+            all_violations.extend(evaluate_traffic(r, spec))
+
+        if args.format == "table":
+            print(f"{'SEVERITY':<10} {'RULE ID':<12} {'ENDPOINT':<34} {'TITLE'}")
+            print("-" * 105)
+            for v in all_violations:
+                glyph = "[!]" if v["severity"] == "CRITICAL" else "[/!\\]"
+                ep = f"{v['method']} {v['endpoint']}"
+                if len(ep) > 33:
+                    ep = ep[:30] + "..."
+                title = v["title"] if len(v["title"]) <= 45 else v["title"][:42] + "..."
+                print(f"{glyph + ' ' + v['severity']:<10} {v['rule_id']:<12} {ep:<34} {title}")
+            print("-" * 105)
+            print(f"Total OWASP API Security Findings: {len(all_violations)}")
+        elif args.format == "json":
+            print(json.dumps(all_violations, indent=2))
+        elif args.format == "sarif":
+            sarif = {
+                "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+                "version": "2.1.0",
+                "runs": [{
+                    "tool": {"driver": {"name": "WaasSecure", "version": "0.1.0"}},
+                    "results": [{
+                        "ruleId": v["rule_id"],
+                        "level": "error" if v["severity"] == "CRITICAL" else "warning",
+                        "message": {"text": v["title"]}
+                    } for v in all_violations]
+                }]
+            }
+            print(json.dumps(sarif, indent=2))
+        elif args.format == "csv":
+            print("Severity,RuleId,Endpoint,Title,Message")
+            for v in all_violations:
+                print(f"{v['severity']},{v['rule_id']},{v['method']} {v['endpoint']},\"{v['title']}\",\"{v['message']}\"")
+
+        if any(v["severity"] == "CRITICAL" for v in all_violations):
+            sys.exit(1)
+
+    elif args.subcommand == "drift":
+        with open(args.traffic, "r", encoding="utf-8") as f:
+            traffic = json.load(f)
+        with open(args.spec, "r", encoding="utf-8") as f:
+            spec = json.load(f)
+
+        all_violations = []
+        for r in traffic:
+            all_violations.extend(evaluate_traffic(r, spec))
+        drift = [v for v in all_violations if v["rule_id"] == "API9:2023"]
+
+        print(f"{'SEVERITY':<10} {'RULE ID':<12} {'ENDPOINT':<34} {'TITLE'}")
+        print("-" * 105)
+        for v in drift:
+            glyph = "[!]" if v["severity"] == "CRITICAL" else "[/!\\]"
+            ep = f"{v['method']} {v['endpoint']}"
+            print(f"{glyph + ' ' + v['severity']:<10} {v['rule_id']:<12} {ep:<34} {v['title']}")
+        print("-" * 105)
+        print(f"Total OpenAPI Drift Findings: {len(drift)}")
+
+    elif args.subcommand == "waf-rules":
+        with open(args.traffic, "r", encoding="utf-8") as f:
+            traffic = json.load(f)
+        all_violations = []
+        for r in traffic:
+            all_violations.extend(evaluate_traffic(r, None))
+        cf_expr, aws_group = synthesize_waf_rules(all_violations)
+
+        if args.target in ("cloudflare", "all"):
+            print("=== Cloudflare WAF Expression Ruleset ===")
+            print(f"{cf_expr}\n")
+        if args.target in ("aws", "all"):
+            print("=== AWS WAFv2 Rule Group (JSON) ===")
+            print(aws_group)
+
+    else:
+        parser.print_help()
+
+if __name__ == "__main__":
+    main()

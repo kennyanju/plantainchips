@@ -1,0 +1,164 @@
+[
+  {
+    "id": "req-001",
+    "timestamp": "2026-10-19T21:00:01Z",
+    "client_ip": "198.51.100.44",
+    "method": "GET",
+    "uri": "/api/v1/users/user_9999/profile",
+    "headers": {
+      "Authorization": "Bearer eyJhbGciOi...",
+      "Host": "api.enterprise.com"
+    },
+    "query_params": {},
+    "status_code": 200,
+    "response_headers": {},
+    "user_identity": {
+      "user_id": "user_1111",
+      "role": "customer",
+      "org_id": "org_retail_1"
+    }
+  },
+  {
+    "id": "req-002",
+    "timestamp": "2026-10-19T21:00:05Z",
+    "client_ip": "203.0.113.12",
+    "method": "GET",
+    "uri": "/api/v1/orders",
+    "headers": {
+      "Host": "api.enterprise.com"
+    },
+    "query_params": {},
+    "status_code": 401,
+    "response_headers": {},
+    "user_identity": null
+  },
+  {
+    "id": "req-003",
+    "timestamp": "2026-10-19T21:00:10Z",
+    "client_ip": "198.51.100.55",
+    "method": "PUT",
+    "uri": "/api/v1/users/user_1111/profile",
+    "headers": {
+      "Authorization": "Bearer eyJhbGciOi...",
+      "Content-Type": "application/json"
+    },
+    "query_params": {},
+    "request_body": {
+      "full_name": "Alice Doe",
+      "is_admin": true,
+      "billing_tier": "enterprise"
+    },
+    "status_code": 200,
+    "response_headers": {
+      "Content-Type": "application/json"
+    },
+    "response_body": {
+      "status": "success",
+      "user": {
+        "id": "user_1111",
+        "email": "alice@corp.internal",
+        "password_hash": "$2b$12$e8Y7849fhjksdfhsd..."
+      }
+    },
+    "user_identity": {
+      "user_id": "user_1111",
+      "role": "customer",
+      "org_id": "org_retail_1"
+    }
+  },
+  {
+    "id": "req-004",
+    "timestamp": "2026-10-19T21:00:15Z",
+    "client_ip": "198.51.100.66",
+    "method": "GET",
+    "uri": "/api/v1/orders",
+    "headers": {
+      "Authorization": "Bearer eyJhbGciOi..."
+    },
+    "query_params": {
+      "limit": "50000"
+    },
+    "status_code": 200,
+    "response_headers": {},
+    "user_identity": {
+      "user_id": "user_1111",
+      "role": "customer",
+      "org_id": "org_retail_1"
+    }
+  },
+  {
+    "id": "req-005",
+    "timestamp": "2026-10-19T21:00:20Z",
+    "client_ip": "198.51.100.77",
+    "method": "POST",
+    "uri": "/admin/system/backup",
+    "headers": {
+      "Authorization": "Bearer eyJhbGciOi..."
+    },
+    "query_params": {},
+    "status_code": 403,
+    "response_headers": {},
+    "user_identity": {
+      "user_id": "user_1111",
+      "role": "customer",
+      "org_id": "org_retail_1"
+    }
+  },
+  {
+    "id": "req-006",
+    "timestamp": "2026-10-19T21:00:25Z",
+    "client_ip": "198.51.100.88",
+    "method": "GET",
+    "uri": "/api/v1/users/user_1111/profile",
+    "headers": {
+      "Authorization": "Bearer eyJhbGciOi..."
+    },
+    "query_params": {},
+    "status_code": 200,
+    "response_headers": {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Credentials": "true"
+    },
+    "user_identity": {
+      "user_id": "user_1111",
+      "role": "customer",
+      "org_id": "org_retail_1"
+    }
+  },
+  {
+    "id": "req-007",
+    "timestamp": "2026-10-19T21:00:30Z",
+    "client_ip": "198.51.100.99",
+    "method": "GET",
+    "uri": "/api/v2/experimental/debug_dump",
+    "headers": {
+      "Authorization": "Bearer eyJhbGciOi..."
+    },
+    "query_params": {},
+    "status_code": 200,
+    "response_headers": {},
+    "user_identity": {
+      "user_id": "user_1111",
+      "role": "customer",
+      "org_id": "org_retail_1"
+    }
+  },
+  {
+    "id": "req-008",
+    "timestamp": "2026-10-19T21:00:35Z",
+    "client_ip": "198.51.100.100",
+    "method": "GET",
+    "uri": "/api/v0/legacy/statement",
+    "headers": {
+      "Authorization": "Bearer eyJhbGciOi..."
+    },
+    "query_params": {},
+    "status_code": 200,
+    "response_headers": {},
+    "user_identity": {
+      "user_id": "user_1111",
+      "role": "customer",
+      "org_id": "org_retail_1"
+    }
+  }
+]

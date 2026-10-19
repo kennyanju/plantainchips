@@ -20,6 +20,8 @@ members = [
     "apps/workloadsecure-cli",
     "apps/codesecure",
     "apps/codesecure-cli",
+    "apps/waassecure",
+    "apps/waassecure-cli",
 ]
 
 [workspace.package]

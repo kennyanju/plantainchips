@@ -1,0 +1,52 @@
+{
+  "openapi": "3.1.0",
+  "title": "Enterprise Core Commerce & Account API",
+  "version": "1.0.0",
+  "endpoints": [
+    {
+      "path": "/api/v1/users/{userId}/profile",
+      "method": "GET",
+      "summary": "Retrieve user profile details",
+      "deprecated": false,
+      "requires_auth": true,
+      "parameters": [
+        {
+          "name": "userId",
+          "in": "path",
+          "required": true,
+          "schema_type": "string"
+        }
+      ]
+    },
+    {
+      "path": "/api/v1/users/{userId}/profile",
+      "method": "PUT",
+      "summary": "Update user profile details",
+      "deprecated": false,
+      "requires_auth": true,
+      "request_body_allowed_fields": ["full_name", "email", "phone"]
+    },
+    {
+      "path": "/api/v1/orders",
+      "method": "GET",
+      "summary": "List customer orders",
+      "deprecated": false,
+      "requires_auth": true,
+      "rate_limit_rpm": 120
+    },
+    {
+      "path": "/api/v0/legacy/statement",
+      "method": "GET",
+      "summary": "Legacy account statement generator",
+      "deprecated": true,
+      "requires_auth": true
+    },
+    {
+      "path": "/api/v1/auth/login",
+      "method": "POST",
+      "summary": "Authenticate user credentials",
+      "deprecated": false,
+      "requires_auth": false
+    }
+  ]
+}
