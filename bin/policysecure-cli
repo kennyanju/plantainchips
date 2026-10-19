@@ -1,0 +1,586 @@
+#!/usr/bin/env python3
+import sys, os, json, argparse, hashlib, time
+
+def parse_rql(query_str):
+    trimmed = query_str.strip()
+    lower = trimmed.lower()
+
+    family = None
+    for prefix, fam in [
+        ("config from", "Config"),
+        ("iam from", "Iam"),
+        ("event from", "Event"),
+        ("data from", "Data"),
+        ("network from", "Network"),
+        ("ai from", "Ai"),
+    ]:
+        if lower.startswith(prefix):
+            family = fam
+            break
+
+    if not family:
+        raise ValueError("Statement must start with a valid RQL clause ('config from', 'iam from', 'event from', 'data from', 'network from', 'ai from')")
+
+    where_idx = lower.find(" where ")
+    if where_idx != -1:
+        from_end = lower.find("from") + 4
+        target = trimmed[from_end:where_idx].strip()
+        where_clause = trimmed[where_idx + 7:].strip()
+    else:
+        from_end = lower.find("from") + 4
+        target = trimmed[from_end:].strip()
+        where_clause = None
+
+    predicates = []
+    if where_clause:
+        terms = where_clause.split(" and ")
+        for term in terms:
+            term_trimmed = term.strip()
+            if not term_trimmed:
+                continue
+            term_lower = term_trimmed.lower()
+
+            if term_lower.startswith("cloud.type"):
+                val = extract_literal(term_trimmed)
+                predicates.append({"type": "CloudType", "value": val})
+            elif term_lower.startswith("api.name"):
+                val = extract_literal(term_trimmed)
+                predicates.append({"type": "ApiName", "value": val})
+            elif term_lower.startswith("json.rule"):
+                rule_expr = term_trimmed[term_trimmed.find('=') + 1:].strip() if '=' in term_trimmed else term_trimmed
+                predicates.append(parse_json_rule(rule_expr))
+            else:
+                predicates.append({"type": "RawExpression", "expression": term_trimmed})
+
+    return {
+        "family": family,
+        "target": target,
+        "predicates": predicates,
+        "raw_query": query_str,
+    }
+
+def extract_literal(expr):
+    for q in ("'", '"'):
+        if q in expr:
+            parts = expr.split(q)
+            if len(parts) >= 3:
+                return parts[1]
+    if "=" in expr:
+        return expr.split("=")[-1].strip().strip("'\"")
+    return expr.strip()
+
+def parse_json_rule(expr):
+    lower = expr.lower()
+    if lower.endswith("is false"):
+        path_str = expr[:len(expr) - 8].strip()
+        if path_str.lower().startswith("json.rule"):
+            path_str = path_str[9:].strip()
+        path = [p.strip() for p in path_str.split(".") if p.strip()]
+        return {"type": "JsonRule", "path": path, "op": "IsFalse", "target_value": None}
+    if lower.endswith("is true"):
+        path_str = expr[:len(expr) - 7].strip()
+        if path_str.lower().startswith("json.rule"):
+            path_str = path_str[9:].strip()
+        path = [p.strip() for p in path_str.split(".") if p.strip()]
+        return {"type": "JsonRule", "path": path, "op": "IsTrue", "target_value": None}
+    if " contains " in lower:
+        parts = expr.split(" contains ")
+        path_str = parts[0].strip()
+        if path_str.lower().startswith("json.rule"):
+            path_str = path_str[9:].strip()
+        path = [p.strip() for p in path_str.split(".") if p.strip()]
+        target_val = parts[1].strip().strip("'\"")
+        return {"type": "JsonRule", "path": path, "op": "Contains", "target_value": target_val}
+    if "=" in expr:
+        parts = expr.split("=")
+        path_str = parts[0].strip()
+        if path_str.lower().startswith("json.rule"):
+            path_str = path_str[9:].strip()
+        path = [p.strip() for p in path_str.split(".") if p.strip()]
+        target_val = parts[1].strip().strip("'\"")
+        return {"type": "JsonRule", "path": path, "op": "Equal", "target_value": target_val}
+
+    return {"type": "RawExpression", "expression": expr}
+
+def resolve_json_path(data, path):
+    curr = data
+    for key in path:
+        if isinstance(curr, dict) and key in curr:
+            curr = curr[key]
+        else:
+            return None
+    return curr
+
+def evaluate_predicate(pred, resource):
+    state = resource.get("state", resource)
+    ptype = pred.get("type")
+
+    if ptype == "CloudType":
+        res_cloud = resource.get("cloud_type", state.get("cloud_type", ""))
+        return res_cloud.lower() == pred["value"].lower()
+
+    if ptype == "ApiName":
+        api_name = resource.get("api", {}).get("name", state.get("api", {}).get("name", ""))
+        return api_name.lower() == pred["value"].lower()
+
+    if ptype == "JsonRule":
+        val = resolve_json_path(state, pred["path"])
+        op = pred["op"]
+        target = pred.get("target_value")
+
+        if op == "IsTrue":
+            return val is True or val == "true" or val == 1
+        if op == "IsFalse":
+            return val is False or val == "false" or val == 0 or val is None
+        if op == "Contains":
+            if isinstance(val, (list, tuple)):
+                return target in val
+            if isinstance(val, str):
+                return target.lower() in val.lower()
+            return False
+        if op == "Equal":
+            return str(val).lower() == str(target).lower()
+
+    if ptype == "RawExpression":
+        serialized = json.dumps(state)
+        return pred["expression"] in serialized
+
+    return True
+
+def evaluate_rql(parsed_query, resource):
+    for pred in parsed_query.get("predicates", []):
+        if not evaluate_predicate(pred, resource):
+            return False
+    return True
+
+def explain_query(query_str):
+    t0 = time.time()
+    try:
+        parsed = parse_rql(query_str)
+        parse_time_us = max(1, int((time.time() - t0) * 1_000_000))
+
+        filter_nodes = []
+        total_cost = 0.15
+        for idx, pred in enumerate(parsed["predicates"]):
+            ptype = pred.get("type")
+            if ptype == "CloudType":
+                expr_str = f"cloud.type == '{pred['value']}'"
+                cost = 0.05
+            elif ptype == "ApiName":
+                expr_str = f"api.name == '{pred['value']}'"
+                cost = 0.04
+            elif ptype == "JsonRule":
+                path_str = ".".join(pred["path"])
+                expr_str = f"json.rule {path_str} {pred['op']} {pred.get('target_value')}"
+                cost = 0.12
+            else:
+                expr_str = f"raw_expr '{pred.get('expression')}'"
+                cost = 0.20
+
+            total_cost += cost
+            filter_nodes.append({
+                "node_type": f"FilterClause[{idx}]",
+                "target": parsed["target"],
+                "expression": expr_str,
+                "estimated_cost_ms": round(cost, 2),
+                "children": []
+            })
+
+        root = {
+            "node_type": "TableScan",
+            "target": f"{parsed['target']} (from {parsed['family']})",
+            "expression": f"Scan inventory for target '{parsed['target']}'",
+            "estimated_cost_ms": round(total_cost, 2),
+            "children": filter_nodes
+        }
+
+        return {
+            "raw_query": query_str,
+            "family": parsed["family"],
+            "is_valid": True,
+            "parse_time_us": parse_time_us,
+            "ast_root": root,
+            "validation_errors": [],
+            "autocomplete_suggestions": [
+                "and json.rule is_public is true",
+                "and region = 'us-east-1'",
+                "and cloud.type = 'aws'"
+            ]
+        }
+    except Exception as e:
+        parse_time_us = max(1, int((time.time() - t0) * 1_000_000))
+        return {
+            "raw_query": query_str,
+            "family": "Unknown",
+            "is_valid": False,
+            "parse_time_us": parse_time_us,
+            "ast_root": None,
+            "validation_errors": [str(e)],
+            "autocomplete_suggestions": [
+                "config from cloud.resource where api.name = 'aws_s3_bucket'",
+                "iam from cloud.resource where has_admin_star is true",
+                "network from cloud.resource where allows_public_ssh is true"
+            ]
+        }
+
+def validate_pack(pack):
+    errors = []
+    warnings = []
+
+    name = pack.get("name", "")
+    version = pack.get("version", "")
+    rules = pack.get("rules", [])
+
+    if not name.strip():
+        errors.append("Policy pack name cannot be empty.")
+    if not version.strip():
+        errors.append("Policy pack version cannot be empty.")
+    if not rules:
+        warnings.append("Policy pack contains zero rules.")
+
+    for rule in rules:
+        rid = rule.get("id", "")
+        rql = rule.get("rql_query", "")
+        controls = rule.get("framework_controls", [])
+        pass_f = rule.get("pass_fixtures", [])
+        fail_f = rule.get("fail_fixtures", [])
+
+        if not rid.strip():
+            errors.append("Found policy rule with empty ID.")
+        if not rql.strip():
+            errors.append(f"Rule '{rid}' has an empty RQL query.")
+        else:
+            try:
+                parse_rql(rql)
+            except Exception as e:
+                errors.append(f"Rule '{rid}' syntax error in RQL query: {e}")
+
+        if not controls:
+            warnings.append(f"Rule '{rid}' does not map to any compliance framework controls.")
+        if not pass_f:
+            warnings.append(f"Rule '{rid}' has no positive (pass) test fixtures.")
+        if not fail_f:
+            warnings.append(f"Rule '{rid}' has no negative (fail) test fixtures.")
+
+    return {
+        "pack_name": name,
+        "is_valid": len(errors) == 0,
+        "rule_count": len(rules),
+        "errors": errors,
+        "warnings": warnings
+    }
+
+def run_unit_tests(pack):
+    t0 = time.time()
+    rules = pack.get("rules", [])
+    results = []
+    passed_rules = 0
+    failed_rules = 0
+
+    for rule in rules:
+        rid = rule.get("id", "")
+        rname = rule.get("name", "")
+        rql = rule.get("rql_query", "")
+        pass_fixtures = rule.get("pass_fixtures", [])
+        fail_fixtures = rule.get("fail_fixtures", [])
+
+        pass_passed = 0
+        fail_passed = 0
+        failure_details = []
+
+        try:
+            parsed = parse_rql(rql)
+
+            # Test PASS fixtures (expected NOT to match rule violation query)
+            for idx, fix in enumerate(pass_fixtures):
+                matched = evaluate_rql(parsed, fix)
+                if not matched:
+                    pass_passed += 1
+                else:
+                    failure_details.append(f"False positive on pass_fixture[{idx}]: Compliant resource matched violation query.")
+
+            # Test FAIL fixtures (expected TO match rule violation query)
+            for idx, fix in enumerate(fail_fixtures):
+                matched = evaluate_rql(parsed, fix)
+                if matched:
+                    fail_passed += 1
+                else:
+                    failure_details.append(f"False negative on fail_fixture[{idx}]: Non-compliant resource did NOT match violation query.")
+
+        except Exception as e:
+            failure_details.append(f"RQL parse error: {e}")
+
+        rule_success = (len(failure_details) == 0) and (pass_passed == len(pass_fixtures)) and (fail_passed == len(fail_fixtures))
+
+        if rule_success:
+            passed_rules += 1
+        else:
+            failed_rules += 1
+
+        results.append({
+            "rule_id": rid,
+            "rule_name": rname,
+            "pass_fixtures_passed": pass_passed,
+            "pass_fixtures_total": len(pass_fixtures),
+            "fail_fixtures_passed": fail_passed,
+            "fail_fixtures_total": len(fail_fixtures),
+            "is_success": rule_success,
+            "failure_details": failure_details
+        })
+
+    duration_ms = round((time.time() - t0) * 1000.0, 3)
+
+    return {
+        "pack_name": pack.get("name", ""),
+        "pack_version": pack.get("version", ""),
+        "total_rules": len(rules),
+        "passed_rules": passed_rules,
+        "failed_rules": failed_rules,
+        "results": results,
+        "execution_duration_ms": duration_ms
+    }
+
+def print_explain_tree(node, depth=0):
+    indent = "  " * depth
+    ntype = node.get("node_type", "")
+    cost = node.get("estimated_cost_ms", 0.0)
+    expr = node.get("expression", "")
+    print(f"{indent}{ntype:<18} | Cost: {cost:.2f} ms | {expr}")
+    for child in node.get("children", []):
+        print_explain_tree(child, depth + 1)
+
+def run_mcp():
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            req = json.loads(line)
+        except Exception:
+            continue
+
+        req_id = req.get("id")
+        method = req.get("method", "")
+
+        if method == "initialize":
+            resp = {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {"tools": {}},
+                    "serverInfo": {"name": "policysecure-mcp", "version": "0.1.0"}
+                }
+            }
+        elif method == "tools/list":
+            resp = {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "tools": [
+                        {
+                            "name": "policy_parse_and_explain_rql",
+                            "description": "Parse an RQL statement and synthesize an AST execution explain plan",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {"query": {"type": "string"}},
+                                "required": ["query"]
+                            }
+                        },
+                        {
+                            "name": "policy_run_unit_tests",
+                            "description": "Execute positive and negative test fixtures against a policy pack",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {"pack_json": {"type": "string"}},
+                                "required": ["pack_json"]
+                            }
+                        },
+                        {
+                            "name": "policy_validate_pack",
+                            "description": "Validate policy pack syntax, schema compliance, and framework mappings",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {"pack_json": {"type": "string"}},
+                                "required": ["pack_json"]
+                            }
+                        }
+                    ]
+                }
+            }
+        elif method == "tools/call":
+            params = req.get("params", {})
+            name = params.get("name", "")
+            args = params.get("arguments", {})
+
+            if name == "policy_parse_and_explain_rql":
+                q = args.get("query", "")
+                plan = explain_query(q)
+                tool_res = plan
+            elif name == "policy_run_unit_tests":
+                pack_str = args.get("pack_json", "{}")
+                try:
+                    p = json.loads(pack_str)
+                    tool_res = run_unit_tests(p)
+                except Exception as e:
+                    tool_res = {"error": f"Invalid pack JSON: {e}"}
+            elif name == "policy_validate_pack":
+                pack_str = args.get("pack_json", "{}")
+                try:
+                    p = json.loads(pack_str)
+                    tool_res = validate_pack(p)
+                except Exception as e:
+                    tool_res = {"error": f"Invalid pack JSON: {e}"}
+            else:
+                tool_res = {"error": f"Unknown tool: {name}"}
+
+            resp = {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "content": [{"type": "text", "text": json.dumps(tool_res, indent=2)}]
+                }
+            }
+        else:
+            resp = {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "error": {"code": -32601, "message": "Method not found"}
+            }
+
+        sys.stdout.write(json.dumps(resp) + "\n")
+        sys.stdout.flush()
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog="policysecure-cli",
+        description="PolicySecure: Unified RQL and Policy-as-Code Studio CLI & Agent MCP Server"
+    )
+    parser.add_argument("--mcp", action="store_true", help="Launch in Model Context Protocol (MCP) server mode over stdio")
+
+    subparsers = parser.add_subparsers(dest="subcommand")
+
+    # explain
+    p_explain = subparsers.add_parser("explain", help="Parse RQL query and display AST execution explain plan")
+    p_explain.add_argument("-q", "--query", required=True, help="RQL query string")
+    p_explain.add_argument("-o", "--format", choices=["table", "json", "tree"], default="table")
+
+    # test
+    p_test = subparsers.add_parser("test", help="Run unit tests for a policy pack against positive and negative fixtures")
+    p_test.add_argument("-p", "--pack", required=True, help="Path to policy pack JSON file")
+    p_test.add_argument("--benchmark", action="store_true", help="Benchmark query evaluation speed")
+    p_test.add_argument("-o", "--format", choices=["table", "json"], default="table")
+
+    # validate
+    p_val = subparsers.add_parser("validate", help="Validate policy pack schema, syntax, and framework mappings")
+    p_val.add_argument("-p", "--pack", required=True, help="Path to policy pack JSON file")
+    p_val.add_argument("-o", "--format", choices=["table", "json"], default="table")
+
+    # benchmark
+    p_bm = subparsers.add_parser("benchmark", help="Benchmark query execution across iterations")
+    p_bm.add_argument("-q", "--query", required=True, help="RQL query string")
+    p_bm.add_argument("-i", "--iterations", type=int, default=1000, help="Number of benchmark iterations")
+
+    args = parser.parse_args()
+
+    if args.mcp:
+        run_mcp()
+        return
+
+    if args.subcommand == "explain":
+        plan = explain_query(args.query)
+        if args.format == "json":
+            print(json.dumps(plan, indent=2))
+        else:
+            print("=== PolicySecure RQL Explain Plan ===")
+            print(f"Query:    {plan['raw_query']}")
+            print(f"Family:   {plan['family']}")
+            print(f"Valid:    {plan['is_valid']}")
+            print(f"Parse:    {plan['parse_time_us']} us")
+            if plan.get("ast_root"):
+                print("\nAST Execution Tree:")
+                print_explain_tree(plan["ast_root"])
+            if plan.get("validation_errors"):
+                print("\nErrors:")
+                for err in plan["validation_errors"]:
+                    print(f"  [!] {err}")
+        if not plan["is_valid"]:
+            sys.exit(1)
+
+    elif args.subcommand == "test":
+        with open(args.pack, "r", encoding="utf-8") as f:
+            pack_data = json.load(f)
+        report = run_unit_tests(pack_data)
+
+        if args.format == "json":
+            print(json.dumps(report, indent=2))
+        else:
+            print("=== PolicySecure Policy Pack Test Runner ===")
+            print(f"Pack:     {report['pack_name']} (v{report['pack_version']})")
+            print(f"Duration: {report['execution_duration_ms']:.3f} ms")
+            print(f"Rules:    {report['total_rules']} total, {report['passed_rules']} passed, {report['failed_rules']} failed\n")
+            print(f"{'RULE ID':<24} {'FAMILY':<10} {'PASS FIXT':<12} {'FAIL FIXT':<12} STATUS")
+            print("-" * 75)
+            for outcome in report["results"]:
+                status_str = "[PASS]" if outcome["is_success"] else "[FAIL]"
+                print(
+                    f"{outcome['rule_id']:<24} {'RQL':<10} "
+                    f"{outcome['pass_fixtures_passed']:>4}/{outcome['pass_fixtures_total']:<6} "
+                    f"{outcome['fail_fixtures_passed']:>4}/{outcome['fail_fixtures_total']:<6} "
+                    f"{status_str}"
+                )
+                for f_detail in outcome["failure_details"]:
+                    print(f"    -> Error: {f_detail}")
+
+        if args.benchmark:
+            print("\n--- Benchmark Profile (1,000 iterations per rule) ---")
+            for rule in pack_data.get("rules", []):
+                q = rule.get("rql_query", "")
+                t0 = time.time()
+                for _ in range(1000):
+                    explain_query(q)
+                avg_us = (time.time() - t0) * 1000.0
+                print(f"Rule {rule.get('id')}: {avg_us:.2f} us/eval")
+
+        if report["failed_rules"] > 0:
+            sys.exit(1)
+
+    elif args.subcommand == "validate":
+        with open(args.pack, "r", encoding="utf-8") as f:
+            pack_data = json.load(f)
+        report = validate_pack(pack_data)
+
+        if args.format == "json":
+            print(json.dumps(report, indent=2))
+        else:
+            print("=== PolicySecure Pack Validation ===")
+            print(f"Pack:   {report['pack_name']}")
+            print(f"Rules:  {report['rule_count']}")
+            print(f"Valid:  {report['is_valid']}")
+            if report["errors"]:
+                print(f"\nErrors ({len(report['errors'])}):")
+                for err in report["errors"]:
+                    print(f"  [!] {err}")
+            if report["warnings"]:
+                print(f"\nWarnings ({len(report['warnings'])}):")
+                for w in report["warnings"]:
+                    print(f"  [*] {w}")
+
+        if not report["is_valid"]:
+            sys.exit(1)
+
+    elif args.subcommand == "benchmark":
+        print(f"Benchmarking RQL query: '{args.query}'")
+        t0 = time.time()
+        for _ in range(args.iterations):
+            explain_query(args.query)
+        total_time = time.time() - t0
+        avg_us = (total_time / args.iterations) * 1_000_000
+        print(f"Completed {args.iterations} iterations in {total_time:.3f}s")
+        print(f"Average evaluation latency: {avg_us:.2f} us ({avg_us / 1000.0:.4f} ms)")
+
+    else:
+        print("PolicySecure CLI: Use --help for available subcommands or --mcp for Model Context Protocol mode.")
+
+if __name__ == "__main__":
+    main()
