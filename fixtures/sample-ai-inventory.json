@@ -1,0 +1,69 @@
+[
+  {
+    "id": "asset-weights-01",
+    "name": "corp-llama3-fine-tuned-weights",
+    "asset_type": "model-weights-storage",
+    "provider": "AWS",
+    "is_approved_enterprise": true,
+    "access_control": "public",
+    "encryption_at_rest": false,
+    "kms_key_id": null
+  },
+  {
+    "id": "asset-vectordb-01",
+    "name": "enterprise-customer-knowledgebase",
+    "asset_type": "vector-database",
+    "provider": "SelfHosted",
+    "is_approved_enterprise": true,
+    "access_control": "public",
+    "encryption_at_rest": true,
+    "vector_db_metadata": {
+      "engine": "Milvus",
+      "namespace_isolation_enforced": false,
+      "requires_api_key": false
+    }
+  },
+  {
+    "id": "asset-agent-01",
+    "name": "autonomous-finance-reconciler",
+    "asset_type": "agent-execution-environment",
+    "provider": "AWS",
+    "is_approved_enterprise": true,
+    "access_control": "authenticated",
+    "encryption_at_rest": true,
+    "agent_tools": [
+      {
+        "name": "execute_ledger_mutation",
+        "description": "Mutate and write records to main accounts ledger",
+        "requires_human_approval": false,
+        "can_mutate_data": true,
+        "can_execute_code": false
+      },
+      {
+        "name": "bash_terminal_exec",
+        "description": "Run shell scripts on worker host",
+        "requires_human_approval": false,
+        "can_mutate_data": true,
+        "can_execute_code": true
+      }
+    ]
+  },
+  {
+    "id": "asset-shadow-01",
+    "name": "rogue-external-llm-proxy",
+    "asset_type": "model-endpoint",
+    "provider": "UnknownExternalAI",
+    "is_approved_enterprise": false,
+    "access_control": "authenticated",
+    "encryption_at_rest": true
+  },
+  {
+    "id": "asset-bedrock-approved",
+    "name": "claude-3-5-sonnet-bedrock",
+    "asset_type": "model-endpoint",
+    "provider": "AWS",
+    "is_approved_enterprise": true,
+    "access_control": "authenticated",
+    "encryption_at_rest": true
+  }
+]
