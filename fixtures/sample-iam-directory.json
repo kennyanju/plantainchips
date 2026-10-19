@@ -1,0 +1,86 @@
+[
+  {
+    "id": "role-cicd-deployer",
+    "arn": "arn:aws:iam::112233445566:role/CiCdDeploymentAgentRole",
+    "name": "CiCdDeploymentAgentRole",
+    "principal_type": "role",
+    "provider": "aws",
+    "attached_policies": [],
+    "inline_statements": [
+      {
+        "effect": "Allow",
+        "actions": ["iam:PassRole", "ec2:RunInstances", "s3:*", "ec2:*"],
+        "resources": ["*"]
+      }
+    ],
+    "permission_boundary": null,
+    "last_active_days": 1,
+    "observed_actions": ["s3:PutObject", "ec2:DescribeInstances"]
+  },
+  {
+    "id": "user-support-tier2",
+    "arn": "arn:aws:iam::112233445566:user/support_engineer_tier2",
+    "name": "support_engineer_tier2",
+    "principal_type": "user",
+    "provider": "aws",
+    "attached_policies": [],
+    "inline_statements": [
+      {
+        "effect": "Allow",
+        "actions": ["iam:CreatePolicyVersion", "cloudwatch:GetMetricData", "support:*"],
+        "resources": ["*"]
+      }
+    ],
+    "permission_boundary": null,
+    "last_active_days": 4,
+    "observed_actions": ["cloudwatch:GetMetricData", "support:DescribeCases"]
+  },
+  {
+    "id": "sa-legacy-backup",
+    "arn": "arn:aws:iam::112233445566:role/LegacyNightlyBackupService",
+    "name": "LegacyNightlyBackupService",
+    "principal_type": "service-account",
+    "provider": "aws",
+    "attached_policies": ["AdministratorAccess"],
+    "inline_statements": [],
+    "permission_boundary": null,
+    "last_active_days": 2,
+    "observed_actions": ["dynamodb:GetItem", "s3:GetObject", "s3:ListBucket"]
+  },
+  {
+    "id": "user-bi-analyst",
+    "arn": "arn:aws:iam::112233445566:user/bi_data_analyst",
+    "name": "bi_data_analyst",
+    "principal_type": "user",
+    "provider": "aws",
+    "attached_policies": [],
+    "inline_statements": [
+      {
+        "effect": "Allow",
+        "actions": ["s3:GetObject", "s3:ListBucket", "athena:StartQueryExecution"],
+        "resources": ["*"]
+      }
+    ],
+    "permission_boundary": null,
+    "last_active_days": 7,
+    "observed_actions": ["s3:GetObject", "s3:ListBucket", "athena:StartQueryExecution"]
+  },
+  {
+    "id": "role-serverless-scheduler",
+    "arn": "arn:aws:iam::112233445566:role/ServerlessCronSchedulerRole",
+    "name": "ServerlessCronSchedulerRole",
+    "principal_type": "role",
+    "provider": "aws",
+    "attached_policies": [],
+    "inline_statements": [
+      {
+        "effect": "Allow",
+        "actions": ["lambda:CreateFunction", "iam:PassRole", "events:PutRule"],
+        "resources": ["*"]
+      }
+    ],
+    "permission_boundary": null,
+    "last_active_days": 3,
+    "observed_actions": ["events:PutRule", "lambda:InvokeFunction"]
+  }
+]

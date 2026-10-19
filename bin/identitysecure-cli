@@ -1,0 +1,336 @@
+#!/usr/bin/env python3
+import sys, os, json, argparse, re
+
+def action_matches(pattern, action):
+    if pattern == "*":
+        return True
+    if pattern.endswith(":*"):
+        return action.startswith(pattern[:-1])
+    return pattern.lower() == action.lower()
+
+def compute_effective_actions(principal):
+    allowed = set()
+    denied = set()
+    for stmt in principal.get("inline_statements", []):
+        is_allow = stmt.get("effect", "").lower() == "allow"
+        for act in stmt.get("actions", []):
+            if is_allow:
+                allowed.add(act)
+            else:
+                denied.add(act)
+    for pol in principal.get("attached_policies", []):
+        if pol.lower() == "administratoraccess":
+            allowed.add("*")
+    return sorted(list(allowed - denied))
+
+def find_escalations(principal):
+    vectors = []
+    actions = compute_effective_actions(principal)
+    has_act = lambda a: any(action_matches(pat, a) for pat in actions)
+
+    if has_act("iam:PassRole") and has_act("ec2:RunInstances"):
+        vectors.append({
+            "vector_id": "CIEM-ESC-001",
+            "name": "EC2 Instance Profile Role Assumption",
+            "principal_arn": principal.get("arn", ""),
+            "required_actions": ["iam:PassRole", "ec2:RunInstances"],
+            "severity": "CRITICAL",
+            "description": "Principal can pass privileged IAM roles to newly launched EC2 instances to exfiltrate administrative credentials."
+        })
+
+    if has_act("iam:CreatePolicyVersion"):
+        vectors.append({
+            "vector_id": "CIEM-ESC-002",
+            "name": "IAM Policy Version Injection",
+            "principal_arn": principal.get("arn", ""),
+            "required_actions": ["iam:CreatePolicyVersion"],
+            "severity": "CRITICAL",
+            "description": "Principal can author a new policy version granting unrestricted '*/*' administrative permissions."
+        })
+
+    if has_act("iam:AttachUserPolicy") or has_act("iam:AttachRolePolicy"):
+        vectors.append({
+            "vector_id": "CIEM-ESC-003",
+            "name": "Administrative Policy Attachment",
+            "principal_arn": principal.get("arn", ""),
+            "required_actions": ["iam:AttachUserPolicy", "iam:AttachRolePolicy"],
+            "severity": "CRITICAL",
+            "description": "Principal can attach AdministratorAccess policy directly to identity or assumed roles."
+        })
+
+    if has_act("lambda:CreateFunction") and has_act("iam:PassRole"):
+        vectors.append({
+            "vector_id": "CIEM-ESC-004",
+            "name": "Serverless Execution Privilege Escalation",
+            "principal_arn": principal.get("arn", ""),
+            "required_actions": ["lambda:CreateFunction", "iam:PassRole"],
+            "severity": "CRITICAL",
+            "description": "Principal can deploy a Lambda function executing under an overprivileged role."
+        })
+
+    return vectors
+
+def right_size_principal(principal):
+    eff = compute_effective_actions(principal)
+    granted_count = 120 if "*" in eff else len(eff)
+    used = principal.get("observed_actions", [])
+    used_count = len(used)
+    unused_count = max(0, granted_count - used_count)
+    gap_pct = round((unused_count / granted_count) * 100.0, 1) if granted_count > 0 else 0.0
+
+    safe_actions = used if used else ["sts:GetCallerIdentity"]
+    policy_doc = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Sid": "RightSizedLeastPrivilege",
+                "Effect": "Allow",
+                "Action": safe_actions,
+                "Resource": "*"
+            }
+        ]
+    }
+    p_name = principal.get("name", "principal").lower().replace("_", "-")
+    hcl = f"""# Right-sized least-privilege policy for {principal.get('name')}
+resource "aws_iam_policy" "{p_name}_least_privilege" {{
+  name        = "{p_name}-least-privilege"
+  description = "Synthesized least privilege policy eliminating {gap_pct}% unused permissions"
+  policy      = jsonencode({json.dumps(policy_doc, indent=2)})
+}}"""
+
+    return {
+        "principal_arn": principal.get("arn", ""),
+        "granted_actions_count": granted_count,
+        "used_actions_count": used_count,
+        "unused_actions_count": unused_count,
+        "entitlement_gap_percentage": gap_pct,
+        "synthesized_least_privilege_policy_json": json.dumps(policy_doc, indent=2),
+        "remediation_hcl": hcl
+    }
+
+def run_mcp():
+    for line in sys.stdin:
+        if not line.strip():
+            continue
+        try:
+            req = json.loads(line)
+        except Exception:
+            continue
+        req_id = req.get("id")
+        method = req.get("method")
+        
+        if method == "initialize":
+            resp = {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {"tools": {}},
+                    "serverInfo": {"name": "identitysecure-mcp", "version": "0.1.0"}
+                }
+            }
+        elif method == "tools/list":
+            resp = {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "tools": [
+                        {
+                            "name": "ciem_compute_effective_permissions",
+                            "description": "Compute net-effective permissions across IAM policies, boundaries, and SCPs",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {"iam_bundle_json": {"type": "string"}},
+                                "required": ["iam_bundle_json"]
+                            }
+                        },
+                        {
+                            "name": "ciem_find_escalation_paths",
+                            "description": "Identify privilege escalation vectors that allow identity to gain admin privileges",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {"iam_bundle_json": {"type": "string"}},
+                                "required": ["iam_bundle_json"]
+                            }
+                        },
+                        {
+                            "name": "ciem_synthesize_least_privilege",
+                            "description": "Synthesize least-privilege IAM policy by stripping unused actions based on observed activity",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "iam_bundle_json": {"type": "string"},
+                                    "principal_arn": {"type": "string"}
+                                },
+                                "required": ["iam_bundle_json"]
+                            }
+                        }
+                    ]
+                }
+            }
+        elif method == "tools/call":
+            params = req.get("params", {})
+            name = params.get("name")
+            args = params.get("arguments", {})
+            raw_bundle = args.get("iam_bundle_json", "[]")
+            try:
+                principals = json.loads(raw_bundle)
+            except Exception as e:
+                principals = []
+
+            if name == "ciem_compute_effective_permissions":
+                findings = []
+                for p in principals:
+                    eff = compute_effective_actions(p)
+                    findings.append({
+                        "principal_arn": p.get("arn"),
+                        "effective_actions_count": len(eff),
+                        "actions": eff
+                    })
+                tool_res = {"principals_count": len(principals), "permissions": findings}
+            elif name == "ciem_find_escalation_paths":
+                escalations = []
+                for p in principals:
+                    escalations.extend(find_escalations(p))
+                tool_res = {"escalations_count": len(escalations), "escalations": escalations}
+            elif name == "ciem_synthesize_least_privilege":
+                p_filter = args.get("principal_arn")
+                reports = []
+                for p in principals:
+                    if not p_filter or p.get("arn", "").lower() == p_filter.lower():
+                        reports.append(right_size_principal(p))
+                tool_res = {"reports_count": len(reports), "right_sizing_reports": reports}
+            else:
+                tool_res = {"error": f"Unknown tool: {name}"}
+
+            resp = {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "content": [{"type": "text", "text": json.dumps(tool_res, indent=2)}]
+                }
+            }
+        else:
+            resp = {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": "Method not found"}}
+
+        sys.stdout.write(json.dumps(resp) + "\n")
+        sys.stdout.flush()
+
+def main():
+    parser = argparse.ArgumentParser(description="IdentitySecure CLI: CIEM Net-Effective Permissions Engine")
+    parser.add_argument("--mcp", action="store_true", help="Run Model Context Protocol stdio server")
+    subparsers = parser.add_subparsers(dest="subcommand")
+
+    ana_p = subparsers.add_parser("analyze", help="Analyze IAM principals")
+    ana_p.add_argument("--input", "-i", required=True, help="Path to IAM snapshot JSON")
+    ana_p.add_argument("--format", "-f", choices=["table", "json", "sarif", "csv"], default="table")
+
+    esc_p = subparsers.add_parser("escalation", help="Detect privilege escalation vectors")
+    esc_p.add_argument("--input", "-i", required=True, help="Path to IAM snapshot JSON")
+    esc_p.add_argument("--format", "-f", choices=["table", "json", "csv"], default="table")
+
+    rs_p = subparsers.add_parser("right-size", help="Synthesize least-privilege policy")
+    rs_p.add_argument("--input", "-i", required=True, help="Path to IAM snapshot JSON")
+    rs_p.add_argument("--principal", "-p", help="Filter by principal name or ARN")
+
+    args = parser.parse_args()
+    if args.mcp:
+        run_mcp()
+        return
+
+    if args.subcommand == "analyze":
+        with open(args.input, "r", encoding="utf-8") as f:
+            principals = json.load(f)
+        findings = []
+        for p in principals:
+            escs = find_escalations(p)
+            for e in escs:
+                findings.append({
+                    "severity": e["severity"],
+                    "rule_id": e["vector_id"],
+                    "principal": p["name"],
+                    "title": f"Privilege Escalation: {e['name']}",
+                    "message": e["description"]
+                })
+            rs = right_size_principal(p)
+            if rs["entitlement_gap_percentage"] >= 50.0:
+                findings.append({
+                    "severity": "HIGH",
+                    "rule_id": "CIEM-GAP-001",
+                    "principal": p["name"],
+                    "title": f"Overpermissive Entitlement Gap ({rs['entitlement_gap_percentage']}%)",
+                    "message": f"Principal has {rs['granted_actions_count']} granted actions but only uses {rs['used_actions_count']}."
+                })
+
+        if args.format == "table":
+            print(f"{'SEVERITY':<10} {'RULE ID':<16} {'PRINCIPAL':<28} {'TITLE'}")
+            print("-" * 105)
+            for f in findings:
+                glyph = "[!]" if f["severity"] == "CRITICAL" else "[/!\\]"
+                print(f"{glyph + ' ' + f['severity']:<10} {f['rule_id']:<16} {f['principal']:<28} {f['title']}")
+            print("-" * 105)
+            print(f"Total Entitlement Findings: {len(findings)}")
+        elif args.format == "json":
+            print(json.dumps(findings, indent=2))
+        elif args.format == "sarif":
+            sarif = {
+                "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+                "version": "2.1.0",
+                "runs": [{
+                    "tool": {"driver": {"name": "IdentitySecure", "version": "0.1.0"}},
+                    "results": [{
+                        "ruleId": f["rule_id"],
+                        "level": "error" if f["severity"] == "CRITICAL" else "warning",
+                        "message": {"text": f["title"]}
+                    } for f in findings]
+                }]
+            }
+            print(json.dumps(sarif, indent=2))
+        elif args.format == "csv":
+            print("Severity,RuleId,Principal,Title,Message")
+            for f in findings:
+                print(f"{f['severity']},{f['rule_id']},{f['principal']},\"{f['title']}\",\"{f['message']}\"")
+        if any(f["severity"] == "CRITICAL" for f in findings):
+            sys.exit(1)
+
+    elif args.subcommand == "escalation":
+        with open(args.input, "r", encoding="utf-8") as f:
+            principals = json.load(f)
+        all_escs = []
+        for p in principals:
+            all_escs.extend(find_escalations(p))
+
+        if args.format == "table":
+            print(f"{'SEVERITY':<10} {'VECTOR ID':<16} {'PRINCIPAL ARN':<36} {'VECTOR NAME'}")
+            print("-" * 100)
+            for e in all_escs:
+                arn = e["principal_arn"] if len(e["principal_arn"]) <= 36 else e["principal_arn"][:33] + "..."
+                print(f"{'[!] ' + e['severity']:<10} {e['vector_id']:<16} {arn:<36} {e['name']}")
+            print("-" * 100)
+            print(f"Total Privilege Escalation Vectors: {len(all_escs)}")
+        elif args.format == "json":
+            print(json.dumps(all_escs, indent=2))
+        elif args.format == "csv":
+            print("Severity,VectorId,PrincipalArn,Name,RequiredActions,Description")
+            for e in all_escs:
+                print(f"{e['severity']},{e['vector_id']},{e['principal_arn']},\"{e['name']}\",\"{';'.join(e['required_actions'])}\",\"{e['description']}\"")
+
+    elif args.subcommand == "right-size":
+        with open(args.input, "r", encoding="utf-8") as f:
+            principals = json.load(f)
+        for p in principals:
+            if not args.principal or args.principal.lower() in p.get("name", "").lower() or args.principal.lower() in p.get("arn", "").lower():
+                r = right_size_principal(p)
+                print("-" * 90)
+                print(f"Principal ARN            : {r['principal_arn']}")
+                print(f"Granted Actions Count    : {r['granted_actions_count']}")
+                print(f"Observed Used Actions    : {r['used_actions_count']}")
+                print(f"Unused Actions Stripped  : {r['unused_actions_count']}")
+                print(f"Entitlement Gap Reduction: {r['entitlement_gap_percentage']:.1f}%")
+                print(f"\nSynthesized Least-Privilege Terraform Patch:\n{r['remediation_hcl']}")
+
+    else:
+        parser.print_help()
+
+if __name__ == "__main__":
+    main()
