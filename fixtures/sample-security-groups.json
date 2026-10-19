@@ -1,0 +1,73 @@
+[
+  {
+    "group_id": "sg-0a1b2c3d4e5f00001",
+    "group_name": "production-database-sg",
+    "vpc_id": "vpc-0123456789abcdef0",
+    "rules": [
+      {
+        "rule_id": "sgr-001",
+        "group_id": "sg-0a1b2c3d4e5f00001",
+        "direction": "ingress",
+        "ip_protocol": "tcp",
+        "from_port": 5432,
+        "to_port": 5432,
+        "cidr_ipv4": "0.0.0.0/0",
+        "description": "Public PostgreSQL access"
+      }
+    ]
+  },
+  {
+    "group_id": "sg-0a1b2c3d4e5f00002",
+    "group_name": "bastion-host-sg",
+    "vpc_id": "vpc-0123456789abcdef0",
+    "rules": [
+      {
+        "rule_id": "sgr-002",
+        "group_id": "sg-0a1b2c3d4e5f00002",
+        "direction": "ingress",
+        "ip_protocol": "tcp",
+        "from_port": 22,
+        "to_port": 22,
+        "cidr_ipv4": "0.0.0.0/0",
+        "description": "Public SSH access"
+      },
+      {
+        "rule_id": "sgr-003",
+        "group_id": "sg-0a1b2c3d4e5f00002",
+        "direction": "ingress",
+        "ip_protocol": "tcp",
+        "from_port": 443,
+        "to_port": 443,
+        "cidr_ipv4": "10.0.0.0/8",
+        "description": "Corporate 10/8 HTTPS access"
+      },
+      {
+        "rule_id": "sgr-004",
+        "group_id": "sg-0a1b2c3d4e5f00002",
+        "direction": "ingress",
+        "ip_protocol": "tcp",
+        "from_port": 443,
+        "to_port": 443,
+        "cidr_ipv4": "10.1.0.0/16",
+        "description": "Subnet 10.1/16 redundant HTTPS access"
+      }
+    ]
+  },
+  {
+    "group_id": "sg-0a1b2c3d4e5f00003",
+    "group_name": "internal-microservice-sg",
+    "vpc_id": "vpc-0123456789abcdef0",
+    "rules": [
+      {
+        "rule_id": "sgr-005",
+        "group_id": "sg-0a1b2c3d4e5f00003",
+        "direction": "ingress",
+        "ip_protocol": "tcp",
+        "from_port": 8443,
+        "to_port": 8443,
+        "cidr_ipv4": "10.0.0.0/16",
+        "description": "Private microservice RPC"
+      }
+    ]
+  }
+]

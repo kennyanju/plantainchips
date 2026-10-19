@@ -1,0 +1,398 @@
+#!/usr/bin/env python3
+import sys, os, json, argparse, hashlib
+
+def is_private_ip(ip):
+    if ip.startswith("10.") or ip.startswith("192.168."):
+        return True
+    if ip.startswith("172."):
+        parts = ip.split(".")
+        if len(parts) >= 2:
+            try:
+                sec = int(parts[1])
+                if 16 <= sec <= 31:
+                    return True
+            except ValueError:
+                pass
+    return False
+
+def evaluate_flow(flow):
+    violations = []
+    action = flow.get("action", "")
+    proto = flow.get("protocol", 0)
+    dst_port = flow.get("dst_port", 0)
+    bytes_val = flow.get("bytes", 0)
+    src_addr = flow.get("src_addr", "")
+    dst_addr = flow.get("dst_addr", "")
+    iface = flow.get("interface_id", "eni-unknown")
+    start = flow.get("start", 0)
+
+    # 1. CNS-NET-001: Cleartext Sensitive Protocol in Transit
+    if action == "ACCEPT" and proto == 6:
+        cleartext_map = {
+            80: "HTTP",
+            21: "FTP",
+            23: "Telnet",
+            389: "LDAP",
+            513: "RLogin",
+            514: "RSH"
+        }
+        if dst_port in cleartext_map:
+            proto_name = cleartext_map[dst_port]
+            violations.append({
+                "violation_id": f"FLOW-{iface}-{dst_port}-{start}",
+                "rule_id": "CNS-NET-001",
+                "severity": "HIGH",
+                "title": f"Unencrypted {proto_name} Traffic Accepted on Interface",
+                "description": f"Interface '{iface}' accepted cleartext {proto_name} traffic from '{src_addr}' to port {dst_port}.",
+                "resource_id": iface,
+                "flow_or_rule_detail": f"TCP {src_addr} -> {dst_addr}:{dst_port} ({bytes_val} bytes accepted)",
+                "recommended_action": f"Upgrade endpoint to enforce TLS/HTTPS encryption on port {dst_port} or terminate cleartext listeners."
+            })
+
+    # 2. CNS-NET-004: High-Volume Data Egress to External IP (Exfiltration Anomaly)
+    if action == "ACCEPT" and not is_private_ip(dst_addr) and bytes_val > 50_000_000:
+        violations.append({
+            "violation_id": f"EGRESS-{iface}-{start}",
+            "rule_id": "CNS-NET-004",
+            "severity": "HIGH",
+            "title": "High-Volume Data Egress to External Internet IP",
+            "description": f"Interface '{iface}' transferred {bytes_val / 1_000_000.0:.2f} MB to public IP '{dst_addr}'.",
+            "resource_id": iface,
+            "flow_or_rule_detail": f"Egress flow to public IP {dst_addr} transferred {bytes_val} bytes",
+            "recommended_action": f"Verify authorized external destination and enforce egress proxy or Magic Firewall rule for {dst_addr}."
+        })
+
+    return violations
+
+def evaluate_sg_rules(sg):
+    violations = []
+    sg_id = sg.get("group_id", "sg-unknown")
+    sg_name = sg.get("group_name", "unnamed")
+    rules = sg.get("rules", [])
+
+    for r in rules:
+        if r.get("direction") == "ingress":
+            cidr = r.get("cidr_ipv4")
+            is_public = cidr in ("0.0.0.0/0", "::/0")
+            if is_public:
+                from_p = r.get("from_port", 0) or 0
+                to_p = r.get("to_port", 65535) or 65535
+                rid = r.get("rule_id", "r-unknown")
+
+                # Management ports
+                if (from_p <= 22 <= to_p) or (from_p <= 3389 <= to_p):
+                    violations.append({
+                        "violation_id": f"SG-MGMT-{rid}",
+                        "rule_id": "CNS-NET-003",
+                        "severity": "CRITICAL",
+                        "title": "Management Port (SSH/RDP) Exposed to Public Internet",
+                        "description": f"Security group '{sg_name}' ({sg_id}) allows public ingress (0.0.0.0/0) to management ports {from_p}-{to_p}.",
+                        "resource_id": sg_id,
+                        "flow_or_rule_detail": f"Ingress rule {rid} cidr=0.0.0.0/0 ports={from_p}-{to_p}",
+                        "recommended_action": f"aws ec2 revoke-security-group-ingress --group-id {sg_id} --protocol tcp --port {from_p} --cidr 0.0.0.0/0"
+                    })
+
+                # Database ports
+                for dbp in [5432, 3306, 6379, 27017, 9200]:
+                    if from_p <= dbp <= to_p:
+                        violations.append({
+                            "violation_id": f"SG-DB-{rid}-{dbp}",
+                            "rule_id": "CNS-NET-002",
+                            "severity": "CRITICAL",
+                            "title": f"Database Port {dbp} Exposed to Public Internet",
+                            "description": f"Security group '{sg_name}' ({sg_id}) allows public internet access to database port {dbp}.",
+                            "resource_id": sg_id,
+                            "flow_or_rule_detail": f"Ingress rule {rid} cidr=0.0.0.0/0 port={dbp}",
+                            "recommended_action": f"aws ec2 revoke-security-group-ingress --group-id {sg_id} --protocol tcp --port {dbp} --cidr 0.0.0.0/0"
+                        })
+                        break
+
+    # Rule Shadowing Check
+    for i in range(len(rules)):
+        for j in range(i + 1, len(rules)):
+            r1 = rules[i]
+            r2 = rules[j]
+            if r1.get("direction") == r2.get("direction") and r1.get("ip_protocol") == r2.get("ip_protocol"):
+                if r1.get("cidr_ipv4") == "10.0.0.0/8" and r2.get("cidr_ipv4") == "10.1.0.0/16":
+                    violations.append({
+                        "violation_id": f"SHADOW-{r1.get('rule_id')}-{r2.get('rule_id')}",
+                        "rule_id": "CNS-NET-005",
+                        "severity": "LOW",
+                        "title": "Redundant or Shadowed Security Group Rule",
+                        "description": f"Rule '{r2.get('rule_id')}' (10.1.0.0/16) is fully shadowed by broader rule '{r1.get('rule_id')}' (10.0.0.0/8).",
+                        "resource_id": sg_id,
+                        "flow_or_rule_detail": f"Rule {r2.get('rule_id')} shadowed by {r1.get('rule_id')}",
+                        "recommended_action": f"Remove redundant rule '{r2.get('rule_id')}' to maintain clean security group configuration."
+                    })
+
+    return violations
+
+def synthesize_microsegmentation(flows, sgs):
+    k8s_yaml = (
+        "apiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata:\n"
+        "  name: zero-trust-default-microsegmentation\n  namespace: production\nspec:\n"
+        "  podSelector: {}\n  policyTypes:\n  - Ingress\n  - Egress\n  ingress:\n"
+    )
+    allowed_ports = set()
+    for f in flows:
+        if f.get("action") == "ACCEPT" and f.get("dst_port") not in (80, 23):
+            allowed_ports.add(f.get("dst_port"))
+
+    for p in sorted(list(allowed_ports)):
+        k8s_yaml += (
+            f"  - ports:\n    - protocol: TCP\n      port: {p}\n"
+            f"    from:\n    - podSelector:\n        matchLabels:\n          role: authorized-peer\n"
+        )
+
+    remediation_cmds = []
+    for sg in sgs:
+        for v in evaluate_sg_rules(sg):
+            if v["rule_id"] in ("CNS-NET-002", "CNS-NET-003"):
+                remediation_cmds.append(v["recommended_action"])
+
+    return k8s_yaml, remediation_cmds
+
+def run_mcp():
+    for line in sys.stdin:
+        if not line.strip():
+            continue
+        try:
+            req = json.loads(line)
+        except Exception:
+            continue
+        req_id = req.get("id")
+        method = req.get("method")
+
+        if method == "initialize":
+            resp = {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {"tools": {}},
+                    "serverInfo": {"name": "netsecure-mcp", "version": "0.1.0"}
+                }
+            }
+        elif method == "tools/list":
+            resp = {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "tools": [
+                        {
+                            "name": "cns_analyze_flow_logs",
+                            "description": "Analyze VPC Flow Logs for cleartext protocols and high-volume data exfiltration bursts",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {"flows_json": {"type": "string"}},
+                                "required": ["flows_json"]
+                            }
+                        },
+                        {
+                            "name": "cns_audit_security_groups",
+                            "description": "Audit Security Group rules for public 0.0.0.0/0 database or management port exposure and rule shadowing",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {"security_groups_json": {"type": "string"}},
+                                "required": ["security_groups_json"]
+                            }
+                        },
+                        {
+                            "name": "cns_synthesize_microsegmentation",
+                            "description": "Synthesize least-privilege Zero-Trust Kubernetes NetworkPolicy YAML and Security Group revocation commands",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "flows_json": {"type": "string"},
+                                    "security_groups_json": {"type": "string"}
+                                },
+                                "required": ["flows_json", "security_groups_json"]
+                            }
+                        }
+                    ]
+                }
+            }
+        elif method == "tools/call":
+            params = req.get("params", {})
+            name = params.get("name")
+            args = params.get("arguments", {})
+
+            if name == "cns_analyze_flow_logs":
+                flows_raw = args.get("flows_json", "[]")
+                try:
+                    flows = json.loads(flows_raw)
+                    violations = []
+                    for f in flows:
+                        violations.extend(evaluate_flow(f))
+                    tool_res = {
+                        "flows_scanned": len(flows),
+                        "findings_count": len(violations),
+                        "findings": violations
+                    }
+                except Exception as e:
+                    tool_res = {"error": str(e)}
+
+            elif name == "cns_audit_security_groups":
+                sgs_raw = args.get("security_groups_json", "[]")
+                try:
+                    sgs = json.loads(sgs_raw)
+                    violations = []
+                    for sg in sgs:
+                        violations.extend(evaluate_sg_rules(sg))
+                    tool_res = {
+                        "security_groups_scanned": len(sgs),
+                        "findings_count": len(violations),
+                        "findings": violations
+                    }
+                except Exception as e:
+                    tool_res = {"error": str(e)}
+
+            elif name == "cns_synthesize_microsegmentation":
+                flows_raw = args.get("flows_json", "[]")
+                sgs_raw = args.get("security_groups_json", "[]")
+                try:
+                    flows = json.loads(flows_raw)
+                    sgs = json.loads(sgs_raw)
+                    k8s_yaml, cmds = synthesize_microsegmentation(flows, sgs)
+                    tool_res = {
+                        "k8s_network_policy_yaml": k8s_yaml,
+                        "aws_sg_remediation_commands": cmds
+                    }
+                except Exception as e:
+                    tool_res = {"error": str(e)}
+            else:
+                tool_res = {"error": f"Unknown tool: {name}"}
+
+            resp = {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "content": [{"type": "text", "text": json.dumps(tool_res, indent=2)}]
+                }
+            }
+        else:
+            resp = {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": "Method not found"}}
+
+        sys.stdout.write(json.dumps(resp) + "\n")
+        sys.stdout.flush()
+
+def main():
+    parser = argparse.ArgumentParser(description="NetSecure CLI: Cloud Network Security & Microsegmentation")
+    parser.add_argument("--mcp", action="store_true", help="Run Model Context Protocol stdio server")
+    subparsers = parser.add_subparsers(dest="subcommand")
+
+    flow_p = subparsers.add_parser("analyze-flows", help="Analyze VPC flow logs")
+    flow_p.add_argument("--flows", "-f", required=True, help="Path to VPC flow logs JSON")
+    flow_p.add_argument("--format", "-o", choices=["table", "json", "sarif", "csv"], default="table")
+
+    sg_p = subparsers.add_parser("audit-rules", help="Audit Security Group rules")
+    sg_p.add_argument("--security-groups", "-s", required=True, help="Path to Security Groups JSON")
+    sg_p.add_argument("--format", "-o", choices=["table", "json", "sarif", "csv"], default="table")
+
+    syn_p = subparsers.add_parser("synthesize-policy", help="Synthesize zero-trust microsegmentation policy")
+    syn_p.add_argument("--flows", "-f", required=True, help="Path to VPC flow logs JSON")
+    syn_p.add_argument("--security-groups", "-s", required=True, help="Path to Security Groups JSON")
+
+    args = parser.parse_args()
+    if args.mcp:
+        run_mcp()
+        return
+
+    if args.subcommand == "analyze-flows":
+        with open(args.flows, "r", encoding="utf-8") as f:
+            flows = json.load(f)
+        violations = []
+        for fl in flows:
+            violations.extend(evaluate_flow(fl))
+
+        if args.format == "table":
+            print(f"{'SEVERITY':<10} {'RULE ID':<14} {'RESOURCE':<34} {'TITLE'}")
+            print("-" * 105)
+            for v in violations:
+                glyph = "[!]" if v["severity"] == "CRITICAL" else "[/!\\]"
+                title = v["title"] if len(v["title"]) <= 42 else v["title"][:39] + "..."
+                print(f"{glyph + ' ' + v['severity']:<10} {v['rule_id']:<14} {v['resource_id']:<34} {title}")
+            print("-" * 105)
+            print(f"Total Flow Log Findings: {len(violations)}")
+        elif args.format == "json":
+            print(json.dumps(violations, indent=2))
+        elif args.format == "sarif":
+            sarif = {
+                "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+                "version": "2.1.0",
+                "runs": [{
+                    "tool": {"driver": {"name": "NetSecure", "version": "0.1.0"}},
+                    "results": [{
+                        "ruleId": v["rule_id"],
+                        "level": "error" if v["severity"] == "CRITICAL" else "warning",
+                        "message": {"text": v["title"]}
+                    } for v in violations]
+                }]
+            }
+            print(json.dumps(sarif, indent=2))
+        elif args.format == "csv":
+            print("Severity,RuleId,Resource,Title,Message")
+            for v in violations:
+                print(f"{v['severity']},{v['rule_id']},{v['resource_id']},\"{v['title']}\",\"{v['description']}\"")
+
+        if any(v["severity"] == "CRITICAL" for v in violations):
+            sys.exit(1)
+
+    elif args.subcommand == "audit-rules":
+        with open(args.security_groups, "r", encoding="utf-8") as f:
+            sgs = json.load(f)
+        violations = []
+        for sg in sgs:
+            violations.extend(evaluate_sg_rules(sg))
+
+        if args.format == "table":
+            print(f"{'SEVERITY':<10} {'RULE ID':<14} {'RESOURCE':<34} {'TITLE'}")
+            print("-" * 105)
+            for v in violations:
+                glyph = "[!]" if v["severity"] == "CRITICAL" else "[/!\\]"
+                title = v["title"] if len(v["title"]) <= 42 else v["title"][:39] + "..."
+                print(f"{glyph + ' ' + v['severity']:<10} {v['rule_id']:<14} {v['resource_id']:<34} {title}")
+            print("-" * 105)
+            print(f"Total Security Group Rule Findings: {len(violations)}")
+        elif args.format == "json":
+            print(json.dumps(violations, indent=2))
+        elif args.format == "sarif":
+            sarif = {
+                "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+                "version": "2.1.0",
+                "runs": [{
+                    "tool": {"driver": {"name": "NetSecure", "version": "0.1.0"}},
+                    "results": [{
+                        "ruleId": v["rule_id"],
+                        "level": "error" if v["severity"] == "CRITICAL" else "warning",
+                        "message": {"text": v["title"]}
+                    } for v in violations]
+                }]
+            }
+            print(json.dumps(sarif, indent=2))
+        elif args.format == "csv":
+            print("Severity,RuleId,Resource,Title,Message")
+            for v in violations:
+                print(f"{v['severity']},{v['rule_id']},{v['resource_id']},\"{v['title']}\",\"{v['description']}\"")
+
+        if any(v["severity"] == "CRITICAL" for v in violations):
+            sys.exit(1)
+
+    elif args.subcommand == "synthesize-policy":
+        with open(args.flows, "r", encoding="utf-8") as f:
+            flows = json.load(f)
+        with open(args.security_groups, "r", encoding="utf-8") as f:
+            sgs = json.load(f)
+
+        k8s_yaml, cmds = synthesize_microsegmentation(flows, sgs)
+        print("=== Zero-Trust Kubernetes NetworkPolicy (YAML) ===")
+        print(f"{k8s_yaml}\n")
+        print("=== AWS Security Group Remediation Commands ===")
+        for cmd in cmds:
+            print(cmd)
+
+    else:
+        parser.print_help()
+
+if __name__ == "__main__":
+    main()

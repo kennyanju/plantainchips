@@ -24,6 +24,8 @@ members = [
     "apps/waassecure-cli",
     "apps/threatsecure",
     "apps/threatsecure-cli",
+    "apps/netsecure",
+    "apps/netsecure-cli",
 ]
 
 [workspace.package]
