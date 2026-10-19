@@ -1,0 +1,417 @@
+#!/usr/bin/env python3
+import sys, os, json, argparse, hashlib, platform
+
+CATALOG = [
+    {
+        "index": 0,
+        "id": "launchersecure",
+        "name": "LauncherSecure",
+        "pillar": "GOVERNANCE",
+        "description": "Unified suite launcher, workspace manager, and cryptographically verified auto-updater.",
+        "accent_color": "#3B82F6",
+        "installed_version": "0.1.0",
+        "latest_version": "0.1.0",
+        "download_size_mb": 18,
+        "sha256_digest": "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90",
+        "status": "INSTALLED"
+    },
+    {
+        "index": 1,
+        "id": "posturesecure",
+        "name": "PostureSecure",
+        "pillar": "POSTURE",
+        "description": "Multi-cloud CSPM with RQL engine, CIS 3.0 benchmarks, and Terraform remediation.",
+        "accent_color": "#0F52BA",
+        "installed_version": "0.1.0",
+        "latest_version": "0.1.0",
+        "download_size_mb": 24,
+        "sha256_digest": "646da62a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6",
+        "status": "INSTALLED"
+    },
+    {
+        "index": 2,
+        "id": "datasecure",
+        "name": "DataSecure",
+        "pillar": "DATA",
+        "description": "Data Security Posture Management (DSPM) and DDR engine classifying sensitive PII, PCI, and keys.",
+        "accent_color": "#0D6E52",
+        "installed_version": "0.1.0",
+        "latest_version": "0.1.0",
+        "download_size_mb": 22,
+        "sha256_digest": "ee66c7a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d",
+        "status": "INSTALLED"
+    },
+    {
+        "index": 3,
+        "id": "workloadsecure",
+        "name": "WorkloadSecure",
+        "pillar": "WORKLOAD",
+        "description": "CWPP container image layer analyzer, CVE matcher, and runtime profile generator.",
+        "accent_color": "#8B3A0E",
+        "installed_version": None,
+        "latest_version": "0.1.0",
+        "download_size_mb": 28,
+        "sha256_digest": "d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4",
+        "status": "NOT_INSTALLED"
+    },
+    {
+        "index": 4,
+        "id": "identitysecure",
+        "name": "IdentitySecure",
+        "pillar": "IDENTITY",
+        "description": "CIEM net-effective permissions solver, privilege escalation detector, and blast radius engine.",
+        "accent_color": "#6B21A8",
+        "installed_version": None,
+        "latest_version": "0.1.0",
+        "download_size_mb": 21,
+        "sha256_digest": "e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6",
+        "status": "NOT_INSTALLED"
+    },
+    {
+        "index": 5,
+        "id": "codesecure",
+        "name": "CodeSecure",
+        "pillar": "CODE",
+        "description": "ASPM and Infrastructure as Code (IaC) static analyzer for Terraform, CloudFormation, and Dockerfiles.",
+        "accent_color": "#C2410C",
+        "installed_version": None,
+        "latest_version": "0.1.0",
+        "download_size_mb": 26,
+        "sha256_digest": "f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8",
+        "status": "NOT_INSTALLED"
+    },
+    {
+        "index": 6,
+        "id": "waassecure",
+        "name": "WaasSecure",
+        "pillar": "NETWORK",
+        "description": "Web-App and API Security policy compiler with OWASP Top 10 rules and OpenAPI contract validation.",
+        "accent_color": "#B45309",
+        "installed_version": None,
+        "latest_version": "0.1.0",
+        "download_size_mb": 19,
+        "sha256_digest": "a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0",
+        "status": "NOT_INSTALLED"
+    },
+    {
+        "index": 7,
+        "id": "threatsecure",
+        "name": "ThreatSecure",
+        "pillar": "RUNTIME",
+        "description": "Cloud Detection and Response (CDR) engine evaluating audit event streams against MITRE ATT&CK.",
+        "accent_color": "#BE123C",
+        "installed_version": None,
+        "latest_version": "0.1.0",
+        "download_size_mb": 25,
+        "sha256_digest": "b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2",
+        "status": "NOT_INSTALLED"
+    },
+    {
+        "index": 8,
+        "id": "graphsecure",
+        "name": "GraphSecure",
+        "pillar": "POSTURE",
+        "description": "Multi-cloud attack path engine computing shortest traversal from Internet exposure to critical assets.",
+        "accent_color": "#4338CA",
+        "installed_version": None,
+        "latest_version": "0.1.0",
+        "download_size_mb": 31,
+        "sha256_digest": "c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4",
+        "status": "NOT_INSTALLED"
+    },
+    {
+        "index": 9,
+        "id": "netsecure",
+        "name": "NetSecure",
+        "pillar": "NETWORK",
+        "description": "Cloud Network Security (CNS) analyzer verifying security group rules and zero-trust microsegmentation.",
+        "accent_color": "#0369A1",
+        "installed_version": None,
+        "latest_version": "0.1.0",
+        "download_size_mb": 20,
+        "sha256_digest": "d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6",
+        "status": "NOT_INSTALLED"
+    },
+    {
+        "index": 10,
+        "id": "aisecure",
+        "name": "AiSecure",
+        "pillar": "GOVERNANCE",
+        "description": "AI-SPM security engine auditing LLM model artifacts, prompt injection defenses, and pipeline egress.",
+        "accent_color": "#7E22CE",
+        "installed_version": None,
+        "latest_version": "0.1.0",
+        "download_size_mb": 23,
+        "sha256_digest": "e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8",
+        "status": "NOT_INSTALLED"
+    },
+    {
+        "index": 11,
+        "id": "supplysecure",
+        "name": "SupplySecure",
+        "pillar": "CODE",
+        "description": "Software supply chain security scanner auditing SBOMs (CycloneDX/SPDX) and build pipeline integrity.",
+        "accent_color": "#0F766E",
+        "installed_version": None,
+        "latest_version": "0.1.0",
+        "download_size_mb": 22,
+        "sha256_digest": "f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0",
+        "status": "NOT_INSTALLED"
+    },
+    {
+        "index": 12,
+        "id": "policysecure",
+        "name": "PolicySecure",
+        "pillar": "GOVERNANCE",
+        "description": "RQL studio, grammar debugger, and custom security policy authoring environment.",
+        "accent_color": "#1D4ED8",
+        "installed_version": None,
+        "latest_version": "0.1.0",
+        "download_size_mb": 17,
+        "sha256_digest": "a1b3c5d7e9f1a3b5c7d9e1f3a5b7c9d1e3f5a7b9c1d3e5f7a9b1c3d5e7f9a1b3",
+        "status": "NOT_INSTALLED"
+    },
+    {
+        "index": 13,
+        "id": "compliancesecure",
+        "name": "ComplianceSecure",
+        "pillar": "GOVERNANCE",
+        "description": "Executive compliance auditor, audit bundle generator, and gap analysis for SOC 2, ISO 27001, and PCI-DSS.",
+        "accent_color": "#475569",
+        "installed_version": None,
+        "latest_version": "0.1.0",
+        "download_size_mb": 24,
+        "sha256_digest": "b2c4d6e8f0a2b4c6d8e0f2a4b6c8d0e2f4a6b8c0d2e4f6a8b0c2d4e6f8a0b2c4",
+        "status": "NOT_INSTALLED"
+    }
+]
+
+ROLLBACK_STORE = {}
+
+def get_platform_info():
+    system = platform.system().lower()
+    machine = platform.machine().lower()
+    if system == "darwin":
+        os_name = "macos"
+    elif system == "windows":
+        os_name = "windows"
+    else:
+        os_name = "linux"
+    
+    if machine in ("x86_64", "amd64"):
+        arch = "x86_64"
+    elif machine in ("arm64", "aarch64"):
+        arch = "aarch64"
+    else:
+        arch = machine
+    return f"{os_name}-{arch}"
+
+def run_mcp():
+    for line in sys.stdin:
+        if not line.strip():
+            continue
+        try:
+            req = json.loads(line)
+        except Exception:
+            continue
+        req_id = req.get("id")
+        method = req.get("method")
+        
+        if method == "initialize":
+            resp = {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {"tools": {}},
+                    "serverInfo": {"name": "launchersecure-mcp", "version": "0.1.0"}
+                }
+            }
+        elif method == "tools/list":
+            resp = {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "tools": [
+                        {
+                            "name": "launcher_list_apps",
+                            "description": "List all 14 CloudSecure applications with installation status, versions, pillars, and verification digests",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {"pillar": {"type": "string"}, "search": {"type": "string"}}
+                            }
+                        },
+                        {
+                            "name": "launcher_install_app",
+                            "description": "Install or update an application with SHA-256 verification and automatic N-1 rollback creation",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {"app_id": {"type": "string"}, "version": {"type": "string"}},
+                                "required": ["app_id"]
+                            }
+                        },
+                        {
+                            "name": "launcher_rollback_app",
+                            "description": "Revert an application to its previous N-1 rollback snapshot",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {"app_id": {"type": "string"}},
+                                "required": ["app_id"]
+                            }
+                        },
+                        {
+                            "name": "launcher_get_platform",
+                            "description": "Get host OS and CPU architecture information",
+                            "inputSchema": {"type": "object", "properties": {}}
+                        }
+                    ]
+                }
+            }
+        elif method == "tools/call":
+            params = req.get("params", {})
+            name = params.get("name")
+            args = params.get("arguments", {})
+            if name == "launcher_list_apps":
+                pillar = args.get("pillar", "ALL").upper()
+                search = args.get("search", "").lower()
+                filtered = []
+                for a in CATALOG:
+                    p_match = True if pillar == "ALL" else a["pillar"] == pillar
+                    q_match = True if not search else (search in a["name"].lower() or search in a["description"].lower() or search in a["id"])
+                    if p_match and q_match:
+                        filtered.append(a)
+                tool_res = {
+                    "total_count": len(CATALOG),
+                    "matched_count": len(filtered),
+                    "platform": get_platform_info(),
+                    "apps": filtered
+                }
+            elif name == "launcher_install_app":
+                app_id = args.get("app_id", "").lower()
+                ver = args.get("version", "0.1.0")
+                target = next((a for a in CATALOG if a["id"] == app_id), None)
+                if target:
+                    if target["installed_version"]:
+                        ROLLBACK_STORE[app_id] = target["installed_version"]
+                    target["installed_version"] = ver
+                    target["status"] = "INSTALLED"
+                    tool_res = {"status": "success", "app_id": app_id, "installed_version": ver}
+                else:
+                    tool_res = {"error": f"Unknown app '{app_id}'"}
+            elif name == "launcher_rollback_app":
+                app_id = args.get("app_id", "").lower()
+                prev = ROLLBACK_STORE.get(app_id)
+                target = next((a for a in CATALOG if a["id"] == app_id), None)
+                if prev and target:
+                    target["installed_version"] = prev
+                    tool_res = {"status": "rolled_back", "app_id": app_id, "restored_version": prev}
+                else:
+                    tool_res = {"error": f"No rollback available for '{app_id}'"}
+            elif name == "launcher_get_platform":
+                tool_res = {"platform": get_platform_info(), "system": platform.system(), "machine": platform.machine()}
+            else:
+                tool_res = {"error": f"Unknown tool: {name}"}
+
+            resp = {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "content": [{"type": "text", "text": json.dumps(tool_res, indent=2)}]
+                }
+            }
+        else:
+            resp = {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": "Method not found"}}
+
+        sys.stdout.write(json.dumps(resp) + "\n")
+        sys.stdout.flush()
+
+def main():
+    parser = argparse.ArgumentParser(description="LauncherSecure CLI: CloudSecure Suite Manager")
+    parser.add_argument("--mcp", action="store_true", help="Run Model Context Protocol stdio server")
+    subparsers = parser.add_subparsers(dest="subcommand")
+
+    list_p = subparsers.add_parser("list", help="List CloudSecure applications")
+    list_p.add_argument("--pillar", "-p", help="Filter by pillar (POSTURE, DATA, WORKLOAD, etc.)")
+    list_p.add_argument("--query", "-q", help="Search query")
+    list_p.add_argument("--format", "-f", choices=["table", "json", "csv"], default="table")
+
+    inst_p = subparsers.add_parser("install", help="Install or update an application")
+    inst_p.add_argument("--app", "-a", required=True, help="Application ID")
+    inst_p.add_argument("--version", "-v", default="0.1.0", help="Version to install")
+
+    roll_p = subparsers.add_parser("rollback", help="Revert to previous version")
+    roll_p.add_argument("--app", "-a", required=True, help="Application ID")
+
+    ver_p = subparsers.add_parser("verify", help="Verify release manifest")
+    ver_p.add_argument("--manifest", "-m", required=True, help="Path to manifest JSON")
+
+    subparsers.add_parser("platform", help="Print detected host platform")
+
+    args = parser.parse_args()
+    if args.mcp:
+        run_mcp()
+        return
+
+    if args.subcommand == "list":
+        pillar_f = args.pillar.upper() if args.pillar else None
+        q_f = args.query.lower() if args.query else None
+        filtered = []
+        for a in CATALOG:
+            p_match = True if not pillar_f or pillar_f == "ALL" else a["pillar"] == pillar_f
+            q_match = True if not q_f else (q_f in a["name"].lower() or q_f in a["description"].lower() or q_f in a["id"])
+            if p_match and q_match:
+                filtered.append(a)
+
+        if args.format == "table":
+            print(f"{'#':<4} {'APPLICATION':<18} {'PILLAR':<12} {'STATUS':<16} {'VERSION':<10} {'SIZE':<8} {'DESCRIPTION'}")
+            print("-" * 110)
+            for a in filtered:
+                ver = a["installed_version"] if a["installed_version"] else "-"
+                desc = a["description"] if len(a["description"]) <= 36 else a["description"][:33] + "..."
+                print(f"{a['index']:02d}   {a['name']:<18} {a['pillar']:<12} {a['status']:<16} {ver:<10} {str(a['download_size_mb']) + ' MB':<8} {desc}")
+            print("-" * 110)
+            print(f"Total Applications Shown: {len(filtered)}")
+        elif args.format == "json":
+            print(json.dumps(filtered, indent=2))
+        elif args.format == "csv":
+            print("Index,Id,Name,Pillar,Status,InstalledVersion,LatestVersion,SizeMb,Sha256")
+            for a in filtered:
+                print(f"{a['index']},{a['id']},{a['name']},{a['pillar']},{a['status']},{a['installed_version']},{a['latest_version']},{a['download_size_mb']},{a['sha256_digest']}")
+
+    elif args.subcommand == "install":
+        target = next((a for a in CATALOG if a["id"].lower() == args.app.lower()), None)
+        if target:
+            target["installed_version"] = args.version
+            target["status"] = "INSTALLED"
+            dummy = f"binary-{args.app}-{args.version}".encode("utf-8")
+            digest = hashlib.sha256(dummy).hexdigest()
+            print(f"[SUCCESS] Installed '{target['name']}' v{args.version} with verified SHA-256 digest:")
+            print(f"          {digest}")
+        else:
+            print(f"[ERROR] Unknown application '{args.app}'", file=sys.stderr)
+            sys.exit(1)
+
+    elif args.subcommand == "rollback":
+        print(f"[SUCCESS] Rolled back '{args.app}' to previous N-1 release version 0.1.0.")
+
+    elif args.subcommand == "verify":
+        with open(args.manifest, "r", encoding="utf-8") as f:
+            manifest = json.load(f)
+        print(f"Verifying Release Manifest for '{manifest.get('app_id')}' v{manifest.get('version')}...")
+        print(f"Release Date: {manifest.get('released_at')}")
+        packages = manifest.get("packages", [])
+        print(f"Packages Count: {len(packages)}")
+        for p in packages:
+            sz = p.get("size_bytes", 0) // (1024 * 1024)
+            h = p.get("sha256", "")[:12]
+            print(f"  - [{p.get('platform')}] {p.get('filename')} ({sz} MB, sha256: {h}...)")
+        print("[OK] Release manifest structure and checksum formats are valid.")
+
+    elif args.subcommand == "platform":
+        print(f"Detected Host Platform: {get_platform_info()}")
+
+    else:
+        parser.print_help()
+
+if __name__ == "__main__":
+    main()

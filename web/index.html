@@ -96,6 +96,10 @@
             <button class="rql-preset-btn" data-preset="iam_admin">Wildcard IAM Roles</button>
             <button class="rql-preset-btn" data-preset="container_root">Container Root Exec</button>
             <button class="rql-preset-btn" data-preset="pii_leak">Sensitive Data Exposure</button>
+            <button class="rql-preset-btn" data-preset="ai_jailbreak">OWASP GenAI Jailbreak</button>
+            <button class="rql-preset-btn" data-preset="net_cross_zone">Zero-Trust Boundary</button>
+            <button class="rql-preset-btn" data-preset="threat_c2">CDR Malicious Egress</button>
+            <button class="rql-preset-btn" data-preset="supply_unsigned">Unsigned SLSA Build</button>
             <button class="rql-preset-btn" data-preset="empty_example">Clean Scan (Zero Findings)</button>
             <button class="rql-preset-btn" data-preset="error_example">Syntax Error (Recovery)</button>
           </div>
@@ -277,6 +281,66 @@
         </div>
       </article>
 
+      <!-- 06 WaasSecure -->
+      <article class="app-card">
+        <div>
+          <div class="app-header">
+            <div class="app-identity">
+              <div class="app-icon-wrap" style="color: var(--ink-waas);">
+                <img src="images/apps/06-waas.svg" alt="" width="26" height="26" aria-hidden="true">
+              </div>
+              <div class="app-meta">
+                <span class="app-num">APP 06</span>
+                <h2 class="app-title">WaasSecure</h2>
+              </div>
+            </div>
+            <span class="badge-pillar">WAAS / WAF</span>
+          </div>
+          <p class="app-desc">
+            Layer-7 web application and API security. Real-time WAF inspection, SQLi/XSS/SSRF blocking, OWASP API Top 10 rules, and Coraza/ModSecurity ruleset synthesis.
+          </p>
+          <ul class="app-capabilities">
+            <li>OWASP Core Rule Set (CRS 4.0) matching</li>
+            <li>API schema conformance validation</li>
+            <li>Synthetic attack replay and rule generator</li>
+          </ul>
+        </div>
+        <div class="app-actions">
+          <a href="apps.html#waassecure" class="btn btn-secondary btn-sm">View Spec</a>
+          <a href="rql.html" class="btn btn-primary btn-sm">Test in RQL</a>
+        </div>
+      </article>
+
+      <!-- 07 ThreatSecure -->
+      <article class="app-card">
+        <div>
+          <div class="app-header">
+            <div class="app-identity">
+              <div class="app-icon-wrap" style="color: var(--ink-threat);">
+                <img src="images/apps/07-threat.svg" alt="" width="26" height="26" aria-hidden="true">
+              </div>
+              <div class="app-meta">
+                <span class="app-num">APP 07</span>
+                <h2 class="app-title">ThreatSecure</h2>
+              </div>
+            </div>
+            <span class="badge-pillar">CDR</span>
+          </div>
+          <p class="app-desc">
+            Cloud detection and incident response (CDR). Correlates eBPF syscall telemetry, CloudTrail audit logs, and VPC flows to map active adversary campaigns to MITRE ATT&CK.
+          </p>
+          <ul class="app-capabilities">
+            <li>eBPF execution telemetry correlation</li>
+            <li>Automated incident kill-chain timeline</li>
+            <li>MITRE ATT&CK Enterprise matrix mapping</li>
+          </ul>
+        </div>
+        <div class="app-actions">
+          <a href="apps.html#threatsecure" class="btn btn-secondary btn-sm">View Spec</a>
+          <a href="rql.html" class="btn btn-primary btn-sm">Test in RQL</a>
+        </div>
+      </article>
+
       <!-- 08 GraphSecure -->
       <article class="app-card">
         <div>
@@ -303,6 +367,156 @@
         </div>
         <div class="app-actions">
           <a href="apps.html#graphsecure" class="btn btn-secondary btn-sm">View Spec</a>
+          <a href="rql.html" class="btn btn-primary btn-sm">Test in RQL</a>
+        </div>
+      </article>
+
+      <!-- 09 NetSecure -->
+      <article class="app-card">
+        <div>
+          <div class="app-header">
+            <div class="app-identity">
+              <div class="app-icon-wrap" style="color: var(--ink-net);">
+                <img src="images/apps/09-net.svg" alt="" width="26" height="26" aria-hidden="true">
+              </div>
+              <div class="app-meta">
+                <span class="app-num">APP 09</span>
+                <h2 class="app-title">NetSecure</h2>
+              </div>
+            </div>
+            <span class="badge-pillar">ZERO TRUST</span>
+          </div>
+          <p class="app-desc">
+            Cloud network security and microsegmentation. Inspects security group ingress/egress, validates VPC peering boundaries, and synthesizes Kubernetes NetworkPolicy manifests.
+          </p>
+          <ul class="app-capabilities">
+            <li>Reachability matrix across VPC and subnets</li>
+            <li>Permissive CIDR (0.0.0.0/0) blast radius score</li>
+            <li>Declarative NetworkPolicy generator</li>
+          </ul>
+        </div>
+        <div class="app-actions">
+          <a href="apps.html#netsecure" class="btn btn-secondary btn-sm">View Spec</a>
+          <a href="rql.html" class="btn btn-primary btn-sm">Test in RQL</a>
+        </div>
+      </article>
+
+      <!-- 10 AiSecure -->
+      <article class="app-card">
+        <div>
+          <div class="app-header">
+            <div class="app-identity">
+              <div class="app-icon-wrap" style="color: var(--ink-aisec);">
+                <img src="images/apps/10-aisec.svg" alt="" width="26" height="26" aria-hidden="true">
+              </div>
+              <div class="app-meta">
+                <span class="app-num">APP 10</span>
+                <h2 class="app-title">AiSecure</h2>
+              </div>
+            </div>
+            <span class="badge-pillar">AI GUARDIAN</span>
+          </div>
+          <p class="app-desc">
+            AI/LLM security guardian. Audits generative AI models and prompts against the OWASP Top 10 for LLMs, detecting prompt injection, training data poisoning, and credential leakage.
+          </p>
+          <ul class="app-capabilities">
+            <li>OWASP Top 10 for LLM applications audit</li>
+            <li>Direct and indirect prompt injection filter</li>
+            <li>Bedrock, SageMaker, and OpenAI policy guard</li>
+          </ul>
+        </div>
+        <div class="app-actions">
+          <a href="apps.html#aisecure" class="btn btn-secondary btn-sm">View Spec</a>
+          <a href="rql.html" class="btn btn-primary btn-sm">Test in RQL</a>
+        </div>
+      </article>
+
+      <!-- 11 SupplySecure -->
+      <article class="app-card">
+        <div>
+          <div class="app-header">
+            <div class="app-identity">
+              <div class="app-icon-wrap" style="color: var(--ink-supply);">
+                <img src="images/apps/11-supply.svg" alt="" width="26" height="26" aria-hidden="true">
+              </div>
+              <div class="app-meta">
+                <span class="app-num">APP 11</span>
+                <h2 class="app-title">SupplySecure</h2>
+              </div>
+            </div>
+            <span class="badge-pillar">SSCS</span>
+          </div>
+          <p class="app-desc">
+            Software supply chain security. Verifies SLSA Level 3 in-toto build provenance, validates Sigstore Cosign container signatures, and catches typo-squatting packages.
+          </p>
+          <ul class="app-capabilities">
+            <li>SLSA Level 3 hermetic provenance audit</li>
+            <li>Sigstore Cosign signature & Rekor log check</li>
+            <li>Damerau-Levenshtein typo-squatting detector</li>
+          </ul>
+        </div>
+        <div class="app-actions">
+          <a href="apps.html#supplysecure" class="btn btn-secondary btn-sm">View Spec</a>
+          <a href="rql.html" class="btn btn-primary btn-sm">Test in RQL</a>
+        </div>
+      </article>
+
+      <!-- 12 PolicySecure -->
+      <article class="app-card">
+        <div>
+          <div class="app-header">
+            <div class="app-identity">
+              <div class="app-icon-wrap" style="color: var(--ink-policy);">
+                <img src="images/apps/12-policy.svg" alt="" width="26" height="26" aria-hidden="true">
+              </div>
+              <div class="app-meta">
+                <span class="app-num">APP 12</span>
+                <h2 class="app-title">PolicySecure</h2>
+              </div>
+            </div>
+            <span class="badge-pillar">RQL STUDIO</span>
+          </div>
+          <p class="app-desc">
+            Unified RQL studio, policy pack validator, and AST explain profiler. Provides an interactive environment to author, test, and benchmark custom security policies.
+          </p>
+          <ul class="app-capabilities">
+            <li>Multi-cloud RQL query compilation and planning</li>
+            <li>YAML and JSON policy pack test harness</li>
+            <li>SARIF 2.1.0 and OPA Rego bridge export</li>
+          </ul>
+        </div>
+        <div class="app-actions">
+          <a href="apps.html#policysecure" class="btn btn-secondary btn-sm">View Spec</a>
+          <a href="rql.html" class="btn btn-primary btn-sm">Test in RQL</a>
+        </div>
+      </article>
+
+      <!-- 13 ComplianceSecure -->
+      <article class="app-card">
+        <div>
+          <div class="app-header">
+            <div class="app-identity">
+              <div class="app-icon-wrap" style="color: var(--ink-compliance);">
+                <img src="images/apps/13-compliance.svg" alt="" width="26" height="26" aria-hidden="true">
+              </div>
+              <div class="app-meta">
+                <span class="app-num">APP 13</span>
+                <h2 class="app-title">ComplianceSecure</h2>
+              </div>
+            </div>
+            <span class="badge-pillar">AUDIT CENTER</span>
+          </div>
+          <p class="app-desc">
+            Executive compliance audit center. Multi-framework posture aggregator tracking real-time readiness across CIS, SOC 2, HIPAA, and PCI-DSS with automated evidence bundles.
+          </p>
+          <ul class="app-capabilities">
+            <li>Unified compliance readiness score calculation</li>
+            <li>Top-10 highest ROI remediation queue ranking</li>
+            <li>Cryptographically hashed auditor evidence exports</li>
+          </ul>
+        </div>
+        <div class="app-actions">
+          <a href="apps.html#compliancesecure" class="btn btn-secondary btn-sm">View Spec</a>
           <a href="rql.html" class="btn btn-primary btn-sm">Test in RQL</a>
         </div>
       </article>

@@ -85,48 +85,158 @@
 
       <div class="rql-container">
         <div class="rql-header">
-          <div class="hud-label">claude_desktop_config.json / cursor_config.json:</div>
+          <div class="hud-label">claude_desktop_config.json / cursor_config.json (14 Native MCP Servers):</div>
           <button class="btn btn-secondary btn-sm copy-btn" data-copy='{
   "mcpServers": {
-    "cloudsecure-posture": {
-      "command": "posturesecure-cli",
-      "args": ["--mcp"]
-    },
-    "cloudsecure-graph": {
-      "command": "graphsecure-cli",
-      "args": ["--mcp"]
-    },
-    "cloudsecure-identity": {
-      "command": "identitysecure-cli",
-      "args": ["--mcp"]
-    }
+    "cloudsecure-launcher": { "command": "launchersecure-cli", "args": ["--mcp"] },
+    "cloudsecure-posture": { "command": "posturesecure-cli", "args": ["--mcp"] },
+    "cloudsecure-data": { "command": "datasecure-cli", "args": ["--mcp"] },
+    "cloudsecure-workload": { "command": "workloadsecure-cli", "args": ["--mcp"] },
+    "cloudsecure-waas": { "command": "waassecure-cli", "args": ["--mcp"] },
+    "cloudsecure-code": { "command": "codesecure-cli", "args": ["--mcp"] },
+    "cloudsecure-identity": { "command": "identitysecure-cli", "args": ["--mcp"] },
+    "cloudsecure-threat": { "command": "threatsecure-cli", "args": ["--mcp"] },
+    "cloudsecure-graph": { "command": "graphsecure-cli", "args": ["--mcp"] },
+    "cloudsecure-net": { "command": "netsecure-cli", "args": ["--mcp"] },
+    "cloudsecure-aisec": { "command": "aisecure-cli", "args": ["--mcp"] },
+    "cloudsecure-supply": { "command": "supplysecure-cli", "args": ["--mcp"] },
+    "cloudsecure-policy": { "command": "policysecure-cli", "args": ["--mcp"] },
+    "cloudsecure-compliance": { "command": "compliancesecure-cli", "args": ["--mcp"] }
   }
-}'>Copy JSON</button>
+}'>Copy All 14 MCP Configs</button>
         </div>
         <div class="code-box">
 {<br>
 &nbsp;&nbsp;"mcpServers": {<br>
-&nbsp;&nbsp;&nbsp;&nbsp;"cloudsecure-posture": {<br>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"command": "posturesecure-cli",<br>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"args": ["--mcp"]<br>
-&nbsp;&nbsp;&nbsp;&nbsp;},<br>
-&nbsp;&nbsp;&nbsp;&nbsp;"cloudsecure-graph": {<br>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"command": "graphsecure-cli",<br>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"args": ["--mcp"]<br>
-&nbsp;&nbsp;&nbsp;&nbsp;},<br>
-&nbsp;&nbsp;&nbsp;&nbsp;"cloudsecure-identity": {<br>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"command": "identitysecure-cli",<br>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"args": ["--mcp"]<br>
-&nbsp;&nbsp;&nbsp;&nbsp;}<br>
+&nbsp;&nbsp;&nbsp;&nbsp;"cloudsecure-launcher": { "command": "launchersecure-cli", "args": ["--mcp"] },<br>
+&nbsp;&nbsp;&nbsp;&nbsp;"cloudsecure-posture": { "command": "posturesecure-cli", "args": ["--mcp"] },<br>
+&nbsp;&nbsp;&nbsp;&nbsp;"cloudsecure-data": { "command": "datasecure-cli", "args": ["--mcp"] },<br>
+&nbsp;&nbsp;&nbsp;&nbsp;"cloudsecure-workload": { "command": "workloadsecure-cli", "args": ["--mcp"] },<br>
+&nbsp;&nbsp;&nbsp;&nbsp;"cloudsecure-waas": { "command": "waassecure-cli", "args": ["--mcp"] },<br>
+&nbsp;&nbsp;&nbsp;&nbsp;"cloudsecure-code": { "command": "codesecure-cli", "args": ["--mcp"] },<br>
+&nbsp;&nbsp;&nbsp;&nbsp;"cloudsecure-identity": { "command": "identitysecure-cli", "args": ["--mcp"] },<br>
+&nbsp;&nbsp;&nbsp;&nbsp;"cloudsecure-threat": { "command": "threatsecure-cli", "args": ["--mcp"] },<br>
+&nbsp;&nbsp;&nbsp;&nbsp;"cloudsecure-graph": { "command": "graphsecure-cli", "args": ["--mcp"] },<br>
+&nbsp;&nbsp;&nbsp;&nbsp;"cloudsecure-net": { "command": "netsecure-cli", "args": ["--mcp"] },<br>
+&nbsp;&nbsp;&nbsp;&nbsp;"cloudsecure-aisec": { "command": "aisecure-cli", "args": ["--mcp"] },<br>
+&nbsp;&nbsp;&nbsp;&nbsp;"cloudsecure-supply": { "command": "supplysecure-cli", "args": ["--mcp"] },<br>
+&nbsp;&nbsp;&nbsp;&nbsp;"cloudsecure-policy": { "command": "policysecure-cli", "args": ["--mcp"] },<br>
+&nbsp;&nbsp;&nbsp;&nbsp;"cloudsecure-compliance": { "command": "compliancesecure-cli", "args": ["--mcp"] }<br>
 &nbsp;&nbsp;}<br>
 }
         </div>
       </div>
     </section>
 
-    <!-- Eyebrow 02: Headless CLI Reference -->
+    <!-- Eyebrow 02: MCP Registered Tools Catalog -->
     <div class="section-eyebrow">
-      <div class="hud-label"><span class="hud-index">02</span> / Headless CLI Reference & Formatting</div>
+      <div class="hud-label"><span class="hud-index">02</span> / Model Context Protocol Registered Tool Catalog</div>
+      <div class="hud-label">JSON-RPC 2.0 Stdio Interface · Deterministic Automation</div>
+    </div>
+
+    <!-- MCP Tools Catalog Table -->
+    <section class="matrix-bay" aria-label="MCP Tool Catalog">
+      <table class="hud-table">
+        <thead>
+          <tr>
+            <th>Application</th>
+            <th>Pillar</th>
+            <th>Exposed MCP Tool Names</th>
+            <th>Primary Functionality</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>00 LauncherSecure</strong></td>
+            <td><span class="badge-pillar">MANAGER</span></td>
+            <td><code>launcher_check_updates</code>, <code>launcher_verify_signature</code></td>
+            <td>Cryptographic Ed25519 signature checks, version ledger status, and update orchestration.</td>
+          </tr>
+          <tr>
+            <td><strong>01 PostureSecure</strong></td>
+            <td><span class="badge-pillar">CSPM</span></td>
+            <td><code>posture_scan</code>, <code>posture_remediate</code></td>
+            <td>Multi-cloud inventory CIS 3.0 benchmark compliance auditing and Terraform patch generation.</td>
+          </tr>
+          <tr>
+            <td><strong>02 DataSecure</strong></td>
+            <td><span class="badge-pillar">DSPM</span></td>
+            <td><code>data_classify_pii</code>, <code>data_inspect_store</code></td>
+            <td>Regex and entropy-based PII/PCI classification with high-risk exposure detection.</td>
+          </tr>
+          <tr>
+            <td><strong>03 WorkloadSecure</strong></td>
+            <td><span class="badge-pillar">CWPP</span></td>
+            <td><code>workload_scan_layers</code>, <code>workload_verify_profile</code></td>
+            <td>Container OCI layer analyzer, CVE matching, and seccomp/AppArmor profile generation.</td>
+          </tr>
+          <tr>
+            <td><strong>04 WaasSecure</strong></td>
+            <td><span class="badge-pillar">WAAS</span></td>
+            <td><code>waas_inspect_http</code>, <code>waas_generate_ruleset</code></td>
+            <td>Layer-7 HTTP inspection, SQLi/XSS/SSRF blocking, and Coraza/ModSecurity ruleset synthesis.</td>
+          </tr>
+          <tr>
+            <td><strong>05 CodeSecure</strong></td>
+            <td><span class="badge-pillar">ASPM</span></td>
+            <td><code>code_scan_iac</code>, <code>code_synthesize_patch</code></td>
+            <td>Static analysis of Terraform, CloudFormation, and Dockerfiles with automated unified diffs.</td>
+          </tr>
+          <tr>
+            <td><strong>06 IdentitySecure</strong></td>
+            <td><span class="badge-pillar">CIEM</span></td>
+            <td><code>identity_solve_net_effective</code>, <code>identity_detect_escalation</code></td>
+            <td>Dijkstra-based privilege escalation path detection and IAM blast radius calculation.</td>
+          </tr>
+          <tr>
+            <td><strong>07 ThreatSecure</strong></td>
+            <td><span class="badge-pillar">CDR</span></td>
+            <td><code>threat_evaluate_cdr</code>, <code>threat_reconstruct_timeline</code></td>
+            <td>eBPF syscall log correlation, CloudTrail anomaly detection, and MITRE ATT&CK mapping.</td>
+          </tr>
+          <tr>
+            <td><strong>08 GraphSecure</strong></td>
+            <td><span class="badge-pillar">GRAPH</span></td>
+            <td><code>graph_find_attack_paths</code>, <code>graph_compute_choke_points</code></td>
+            <td>BFS toxic path discovery from Internet entry points to Crown Jewel data stores.</td>
+          </tr>
+          <tr>
+            <td><strong>09 NetSecure</strong></td>
+            <td><span class="badge-pillar">ZERO TRUST</span></td>
+            <td><code>net_analyze_flow</code>, <code>net_generate_network_policy</code></td>
+            <td>VPC flow log reachability analysis and Kubernetes NetworkPolicy synthesis.</td>
+          </tr>
+          <tr>
+            <td><strong>10 AiSecure</strong></td>
+            <td><span class="badge-pillar">AI GUARDIAN</span></td>
+            <td><code>ai_detect_prompt_injection</code>, <code>ai_audit_owasp_llm</code></td>
+            <td>OWASP Top 10 for LLMs audit: jailbreak detection, training data poisoning, and model scanning.</td>
+          </tr>
+          <tr>
+            <td><strong>11 SupplySecure</strong></td>
+            <td><span class="badge-pillar">SSCS</span></td>
+            <td><code>supply_verify_provenance</code>, <code>supply_verify_cosign</code></td>
+            <td>SLSA Level 3 in-toto build provenance auditing, Sigstore Cosign verification, and typo-squatting detection.</td>
+          </tr>
+          <tr>
+            <td><strong>12 PolicySecure</strong></td>
+            <td><span class="badge-pillar">RQL STUDIO</span></td>
+            <td><code>policy_validate_pack</code>, <code>policy_explain_ast</code></td>
+            <td>Unified RQL AST parsing, predicate optimization, and policy test harness validation.</td>
+          </tr>
+          <tr>
+            <td><strong>13 ComplianceSecure</strong></td>
+            <td><span class="badge-pillar">AUDIT CENTER</span></td>
+            <td><code>compliance_evaluate_framework</code>, <code>compliance_compile_bundle</code></td>
+            <td>Unified multi-framework posture aggregator (CIS, SOC 2, HIPAA, PCI-DSS) and audit evidence bundles.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- Eyebrow 03: Headless CLI Reference -->
+    <div class="section-eyebrow">
+      <div class="hud-label"><span class="hud-index">03</span> / Headless CLI Reference & Formatting</div>
       <div class="hud-label">CI/CD Gate Integration · SARIF & JSON Outputs</div>
     </div>
 
@@ -143,7 +253,7 @@
         <tbody>
           <tr>
             <td><code>scan</code></td>
-            <td>Run compliance or vulnerability assessment against target snapshot or path.</td>
+            <td>Run compliance, security posture, or vulnerability assessment against target state.</td>
             <td><code>posturesecure-cli scan --target ./cloud-state.json --benchmark cis-aws-v3.0</code></td>
           </tr>
           <tr>
@@ -160,6 +270,11 @@
             <td><code>--format</code></td>
             <td>Control stdout output serialization (table, json, sarif, csv, csec).</td>
             <td><code>posturesecure-cli scan --format sarif &gt; results.sarif</code></td>
+          </tr>
+          <tr>
+            <td><code>--mcp</code></td>
+            <td>Run as a standard JSON-RPC 2.0 stdio Model Context Protocol server.</td>
+            <td><code>aisecure-cli --mcp</code></td>
           </tr>
         </tbody>
       </table>

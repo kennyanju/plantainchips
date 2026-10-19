@@ -1,0 +1,318 @@
+#!/usr/bin/env python3
+import sys, os, json, argparse
+
+KNOWN_VULNS = [
+    {
+        "cve_id": "CVE-2024-41110",
+        "package_name": "docker",
+        "match_version": lambda v: v.startswith("26."),
+        "fixed_version": "27.1.1",
+        "severity": "CRITICAL",
+        "cvss": 10.0,
+        "title": "Docker Engine Authorization Bypass",
+        "description": "Bypass of AuthZ plugins enabling privilege escalation to host root."
+    },
+    {
+        "cve_id": "CVE-2023-3817",
+        "package_name": "openssl",
+        "match_version": lambda v: v.startswith("3.0.8"),
+        "fixed_version": "3.0.10",
+        "severity": "MEDIUM",
+        "cvss": 5.3,
+        "title": "OpenSSL Excessive DH Parameter Computation Denial of Service",
+        "description": "Flaw in DH_check() triggers CPU exhaustion upon parsing crafted parameters."
+    },
+    {
+        "cve_id": "CVE-2023-44487",
+        "package_name": "nghttp2",
+        "match_version": lambda v: v.startswith("1.25."),
+        "fixed_version": "1.26.0",
+        "severity": "HIGH",
+        "cvss": 7.5,
+        "title": "HTTP/2 Rapid Reset Stream Cancellation Exhaustion",
+        "description": "Flooding RST_STREAM frames induces severe resource exhaustion on HTTP/2 servers."
+    }
+]
+
+def scan_image(image):
+    findings = []
+    for layer in image.get("layers", []):
+        l_idx = layer.get("layer_index", 0)
+        for pkg in layer.get("packages", []):
+            p_name = pkg.get("name")
+            p_ver = pkg.get("version", "")
+            for rule in KNOWN_VULNS:
+                if rule["package_name"] == p_name and rule["match_version"](p_ver):
+                    findings.append({
+                        "cve_id": rule["cve_id"],
+                        "package_name": p_name,
+                        "installed_version": p_ver,
+                        "fixed_version": rule["fixed_version"],
+                        "severity": rule["severity"],
+                        "cvss_score": rule["cvss"],
+                        "introduced_in_layer_index": l_idx,
+                        "title": rule["title"],
+                        "description": rule["description"]
+                    })
+    return findings
+
+def evaluate_runtime_event(ev):
+    anomalies = []
+    proc = ev.get("process_executable", "")
+    parent = ev.get("parent_process", "")
+    syscall = ev.get("syscall", "")
+    cid = ev.get("container_id", "container")
+
+    # Rule 1: Shell spawned by daemon
+    if (proc.endswith("/sh") or proc.endswith("/bash") or proc.endswith("/zsh")) and any(d in parent for d in ["nginx", "node", "python", "gunicorn"]):
+        anomalies.append({
+            "anomaly_id": f"ANOM-{ev.get('event_id')}",
+            "rule_id": "CWPP-RT-001",
+            "severity": "CRITICAL",
+            "title": "Unexpected Shell Spawned by Daemon Process",
+            "description": f"Production daemon '{parent}' spawned interactive shell '{proc}' inside container '{cid}'. Potential RCE.",
+            "container_id": cid
+        })
+
+    # Rule 2: Root container process
+    if ev.get("is_root", False) and ev.get("user_id", 1000) == 0:
+        anomalies.append({
+            "anomaly_id": f"ANOM-ROOT-{ev.get('event_id')}",
+            "rule_id": "CWPP-RT-002",
+            "severity": "HIGH",
+            "title": "Container Process Running as Root UID 0",
+            "description": f"Process '{proc}' is executing with root UID 0 inside container '{cid}'.",
+            "container_id": cid
+        })
+
+    # Rule 3: Escape syscall
+    if syscall in ["ptrace", "reboot", "setns"]:
+        anomalies.append({
+            "anomaly_id": f"ANOM-SYS-{ev.get('event_id')}",
+            "rule_id": "CWPP-RT-003",
+            "severity": "CRITICAL",
+            "title": "Dangerous Container Escape Syscall Invocation",
+            "description": f"Process '{proc}' invoked restricted syscall '{syscall}' inside container '{cid}'.",
+            "container_id": cid
+        })
+
+    return anomalies
+
+def synthesize_hardening_yaml(cname):
+    return f"""# Hardened Kubernetes SecurityContext for {cname}
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 10001
+  capabilities:
+    drop:
+      - ALL
+    add:
+      - NET_BIND_SERVICE
+  seccompProfile:
+    type: RuntimeDefault"""
+
+def run_mcp():
+    for line in sys.stdin:
+        if not line.strip():
+            continue
+        try:
+            req = json.loads(line)
+        except Exception:
+            continue
+        req_id = req.get("id")
+        method = req.get("method")
+        
+        if method == "initialize":
+            resp = {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {"tools": {}},
+                    "serverInfo": {"name": "workloadsecure-mcp", "version": "0.1.0"}
+                }
+            }
+        elif method == "tools/list":
+            resp = {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "tools": [
+                        {
+                            "name": "cwpp_scan_oci_image",
+                            "description": "Scan OCI/Docker container image layers for package CVEs and leaked secrets",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {"image_json": {"type": "string"}},
+                                "required": ["image_json"]
+                            }
+                        },
+                        {
+                            "name": "cwpp_analyze_runtime_events",
+                            "description": "Analyze container runtime syscall and process execution event stream",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {"events_json": {"type": "string"}},
+                                "required": ["events_json"]
+                            }
+                        },
+                        {
+                            "name": "cwpp_generate_seccomp_profile",
+                            "description": "Generate hardened Kubernetes SecurityContext and SeccompProfile YAML for a workload",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {"workload_name": {"type": "string"}},
+                                "required": ["workload_name"]
+                            }
+                        }
+                    ]
+                }
+            }
+        elif method == "tools/call":
+            params = req.get("params", {})
+            name = params.get("name")
+            args = params.get("arguments", {})
+            if name == "cwpp_scan_oci_image":
+                raw_json = args.get("image_json", "[]")
+                try:
+                    images = json.loads(raw_json)
+                    all_vulns = []
+                    for img in images:
+                        all_vulns.extend(scan_image(img))
+                    tool_res = {
+                        "images_scanned": len(images),
+                        "vulnerabilities_count": len(all_vulns),
+                        "vulnerabilities": all_vulns
+                    }
+                except Exception as e:
+                    tool_res = {"error": str(e)}
+            elif name == "cwpp_analyze_runtime_events":
+                raw_json = args.get("events_json", "[]")
+                try:
+                    events = json.loads(raw_json)
+                    all_anoms = []
+                    for ev in events:
+                        all_anoms.extend(evaluate_runtime_event(ev))
+                    tool_res = {
+                        "events_analyzed": len(events),
+                        "anomalies_count": len(all_anoms),
+                        "anomalies": all_anoms
+                    }
+                except Exception as e:
+                    tool_res = {"error": str(e)}
+            elif name == "cwpp_generate_seccomp_profile":
+                w_name = args.get("workload_name", "workload")
+                tool_res = {
+                    "workload_name": w_name,
+                    "kubernetes_yaml": synthesize_hardening_yaml(w_name)
+                }
+            else:
+                tool_res = {"error": f"Unknown tool: {name}"}
+
+            resp = {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "content": [{"type": "text", "text": json.dumps(tool_res, indent=2)}]
+                }
+            }
+        else:
+            resp = {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": "Method not found"}}
+
+        sys.stdout.write(json.dumps(resp) + "\n")
+        sys.stdout.flush()
+
+def main():
+    parser = argparse.ArgumentParser(description="WorkloadSecure CLI: CWPP Container X-Ray & Runtime Protection")
+    parser.add_argument("--mcp", action="store_true", help="Run Model Context Protocol stdio server")
+    subparsers = parser.add_subparsers(dest="subcommand")
+
+    scan_p = subparsers.add_parser("scan", help="Scan container images for vulnerabilities")
+    scan_p.add_argument("--input", "-i", required=True, help="Path to container image JSON")
+    scan_p.add_argument("--format", "-f", choices=["table", "json", "sarif", "csv"], default="table")
+
+    rt_p = subparsers.add_parser("runtime", help="Analyze container runtime event stream")
+    rt_p.add_argument("--events", "-e", required=True, help="Path to runtime events JSON")
+    rt_p.add_argument("--format", "-f", choices=["table", "json", "csv"], default="table")
+
+    hard_p = subparsers.add_parser("harden", help="Synthesize hardened Kubernetes securityContext YAML")
+    hard_p.add_argument("--container-name", "-n", default="workload", help="Workload name")
+
+    args = parser.parse_args()
+    if args.mcp:
+        run_mcp()
+        return
+
+    if args.subcommand == "scan":
+        with open(args.input, "r", encoding="utf-8") as f:
+            images = json.load(f)
+        all_vulns = []
+        for img in images:
+            all_vulns.extend(scan_image(img))
+
+        if args.format == "table":
+            print(f"{'SEVERITY':<10} {'CVE ID':<18} {'PACKAGE':<16} {'VERSION':<12} {'CVSS':<6} {'LAYER':<6} {'TITLE'}")
+            print("-" * 105)
+            for v in all_vulns:
+                glyph = "[!]" if v["severity"] == "CRITICAL" else "[/!\\]"
+                title = v["title"] if len(v["title"]) <= 30 else v["title"][:27] + "..."
+                print(f"{glyph + ' ' + v['severity']:<10} {v['cve_id']:<18} {v['package_name']:<16} {v['installed_version']:<12} {v['cvss_score']:<6.1f} L{v['introduced_in_layer_index']:<5} {title}")
+            print("-" * 105)
+            print(f"Total CVE Vulnerabilities: {len(all_vulns)}")
+        elif args.format == "json":
+            print(json.dumps(all_vulns, indent=2))
+        elif args.format == "sarif":
+            sarif = {
+                "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+                "version": "2.1.0",
+                "runs": [{
+                    "tool": {"driver": {"name": "WorkloadSecure", "version": "0.1.0"}},
+                    "results": [{
+                        "ruleId": v["cve_id"],
+                        "level": "error" if v["severity"] == "CRITICAL" else "warning",
+                        "message": {"text": v["title"]}
+                    } for v in all_vulns]
+                }]
+            }
+            print(json.dumps(sarif, indent=2))
+        elif args.format == "csv":
+            print("Severity,CveId,Package,Version,FixedVersion,Cvss,LayerIndex,Title")
+            for v in all_vulns:
+                print(f"{v['severity']},{v['cve_id']},{v['package_name']},{v['installed_version']},{v['fixed_version']},{v['cvss_score']:.1f},{v['introduced_in_layer_index']},\"{v['title']}\"")
+        if any(v["severity"] == "CRITICAL" for v in all_vulns):
+            sys.exit(1)
+
+    elif args.subcommand == "runtime":
+        with open(args.events, "r", encoding="utf-8") as f:
+            events = json.load(f)
+        all_anoms = []
+        for ev in events:
+            all_anoms.extend(evaluate_runtime_event(ev))
+
+        if args.format == "table":
+            print(f"{'SEVERITY':<10} {'RULE ID':<14} {'CONTAINER ID':<24} {'ANOMALY TITLE'}")
+            print("-" * 95)
+            for a in all_anoms:
+                glyph = "[!]" if a["severity"] == "CRITICAL" else "[/!\\]"
+                title = a["title"] if len(a["title"]) <= 40 else a["title"][:37] + "..."
+                print(f"{glyph + ' ' + a['severity']:<10} {a['rule_id']:<14} {a['container_id']:<24} {title}")
+            print("-" * 95)
+            print(f"Total Runtime Behavioral Anomalies: {len(all_anoms)}")
+        elif args.format == "json":
+            print(json.dumps(all_anoms, indent=2))
+        elif args.format == "csv":
+            print("Severity,RuleId,ContainerId,Title,Description")
+            for a in all_anoms:
+                print(f"{a['severity']},{a['rule_id']},{a['container_id']},\"{a['title']}\",\"{a['description']}\"")
+        if any(a["severity"] == "CRITICAL" for a in all_anoms):
+            sys.exit(1)
+
+    elif args.subcommand == "harden":
+        print(synthesize_hardening_yaml(args.container_name))
+    else:
+        parser.print_help()
+
+if __name__ == "__main__":
+    main()

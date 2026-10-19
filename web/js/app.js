@@ -92,6 +92,38 @@ document.addEventListener('DOMContentLoaded', () => {
         { id: "SEC-DSPM-008", res: "snowflake://account/analytics_db/raw_customers", sev: "CRITICAL", glyph: "[!]", badge: "badge-crit", desc: "Table contains 14,200 unmasked social security numbers exposed to public share." }
       ]
     },
+    ai_jailbreak: {
+      query: "ai from cloud.model where prompt.injection.detected == true and model.guardrail == 'disabled'",
+      target: "AiSecure (AI Guardian)",
+      time: "15 ms",
+      findings: [
+        { id: "SEC-AI-LLM01", res: "bedrock://model/anthropic.claude-3-haiku", sev: "CRITICAL", glyph: "[!]", badge: "badge-crit", desc: "Adversarial jailbreak payload detected attempting prompt extraction and model system bypass." }
+      ]
+    },
+    net_cross_zone: {
+      query: "network from cloud.vpc where source.tier == 'frontend' and dest.tier == 'database' and firewall.action == 'allow'",
+      target: "NetSecure (Zero Trust)",
+      time: "21 ms",
+      findings: [
+        { id: "SEC-NET-SEG04", res: "vpc-peering://prod-vpc-peer-904", sev: "HIGH", glyph: "[/!\\]", badge: "badge-high", desc: "Direct perimeter ingress route to internal production database subnet violates tier microsegmentation." }
+      ]
+    },
+    threat_c2: {
+      query: "event from cloud.network where connection.state == 'established' and dest.ip in c2_threat_intel and egress.bytes > 10000000",
+      target: "ThreatSecure (CDR)",
+      time: "28 ms",
+      findings: [
+        { id: "SEC-CDR-ACT09", res: "eni://prod-bastion-public-iface", sev: "CRITICAL", glyph: "[!]", badge: "badge-crit", desc: "High-volume egress connection established to known adversary C2 infrastructure. Automated quarantine engaged." }
+      ]
+    },
+    supply_unsigned: {
+      query: "event from cloud.build where artifact.digest != null and sigstore.signature == null",
+      target: "SupplySecure (SSCS)",
+      time: "19 ms",
+      findings: [
+        { id: "SEC-SSCS-SIG01", res: "registry://docker.io/acme/payment-worker:v2.1", sev: "HIGH", glyph: "[/!\\]", badge: "badge-high", desc: "Production container deployed without Cosign cryptographic signature or Rekor transparency proof." }
+      ]
+    },
     empty_example: {
       query: "config from cloud.resource where cloud.type = 'gcp' and api.name = 'compute.firewalls' and json.rule = allowed[].ports contains '22' and sourceRanges contains '0.0.0.0/0'",
       target: "PostureSecure (CSPM)",
@@ -214,6 +246,14 @@ document.addEventListener('DOMContentLoaded', () => {
         executeRql(rqlPresets.container_root);
       } else if (q.includes('data') || q.includes('pii')) {
         executeRql(rqlPresets.pii_leak);
+      } else if (q.includes('ai') || q.includes('prompt') || q.includes('model')) {
+        executeRql(rqlPresets.ai_jailbreak);
+      } else if (q.includes('network') || q.includes('vpc') || q.includes('tier')) {
+        executeRql(rqlPresets.net_cross_zone);
+      } else if (q.includes('threat') || q.includes('c2') || q.includes('egress')) {
+        executeRql(rqlPresets.threat_c2);
+      } else if (q.includes('sigstore') || q.includes('signature') || q.includes('supply') || q.includes('artifact')) {
+        executeRql(rqlPresets.supply_unsigned);
       } else {
         executeRql(rqlPresets.s3_public);
       }
