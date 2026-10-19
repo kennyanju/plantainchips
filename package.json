@@ -1,0 +1,11 @@
+{
+  "name": "plantainchips",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CloudSecure CNAPP Suite Web Portal",
+  "scripts": {
+    "build": "echo 'Static web assets ready in web/'",
+    "deploy": "wrangler pages deploy web",
+    "deploy:worker": "wrangler deploy"
+  }
+}

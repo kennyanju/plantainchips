@@ -1,3 +1,7 @@
 name = "plantainchips"
 compatibility_date = "2024-01-01"
+
+[assets]
+directory = "./web"
+
 pages_build_output_dir = "web"
