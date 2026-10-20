@@ -1,0 +1,575 @@
+/* CloudSecure GUI Workbench Layout & Components */
+
+.workbench-layout {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  min-height: 720px;
+}
+
+/* Left Navigation Sidebar */
+.workbench-sidebar {
+  border-right: 1px solid var(--line);
+  background: var(--bg-elevated);
+  display: flex;
+  flex-direction: column;
+}
+
+.workbench-sidebar-header {
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.workbench-nav-list {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  max-height: calc(100vh - 180px);
+}
+
+.workbench-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0.75rem 1.25rem;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 0.88rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+  width: 100%;
+}
+
+.workbench-nav-item:hover {
+  background: var(--bg);
+  color: var(--ink-strong);
+}
+
+.workbench-nav-item.active {
+  background: var(--invert-bg);
+  color: var(--invert-fg);
+  font-weight: 600;
+}
+
+.wb-nav-index {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  opacity: 0.65;
+  width: 22px;
+}
+
+.wb-nav-name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wb-nav-pillar {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  padding: 2px 6px;
+  border: 1px solid currentColor;
+  opacity: 0.75;
+}
+
+.workbench-nav-item.active .wb-nav-pillar {
+  border-color: var(--invert-fg);
+}
+
+/* Main Workbench Stage */
+.workbench-stage {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+/* App Header */
+.wb-app-header {
+  padding: 1.5rem 2rem;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.wb-app-meta {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.wb-app-icon {
+  width: 44px;
+  height: 44px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  background: var(--bg-elevated);
+}
+
+.wb-app-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--ink-strong);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.wb-app-subtitle {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.wb-app-desc {
+  font-size: 0.88rem;
+  color: var(--ink);
+  line-height: 1.5;
+  margin-top: 8px;
+  max-width: 780px;
+}
+
+/* Control Toolbar */
+.wb-toolbar {
+  padding: 0.75rem 2rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-elevated);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.wb-toolbar-left,
+.wb-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.status-badge {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+}
+
+.status-pass {
+  background: rgba(74, 222, 128, 0.1);
+  color: var(--sev-pass);
+  border-color: var(--sev-pass);
+}
+
+.status-warn {
+  background: rgba(250, 204, 21, 0.1);
+  color: var(--sev-med);
+  border-color: var(--sev-med);
+}
+
+/* Panels */
+.wb-panel-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 1.5rem 2rem;
+  gap: 1.5rem;
+}
+
+.wb-panel {
+  border: 1px solid var(--line);
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+}
+
+.wb-panel-header {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-elevated);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* Metrics Row */
+.wb-metric-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+}
+
+.wb-metric-card {
+  padding: 1rem;
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.wb-metric-card:last-child {
+  border-right: none;
+}
+
+.wb-metric-val {
+  font-family: var(--font-mono);
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: var(--ink-strong);
+}
+
+.wb-metric-lbl {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  color: var(--muted);
+  margin-top: 4px;
+  letter-spacing: 0.08em;
+}
+
+/* Forms & Inputs */
+.wb-form-row {
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.wb-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0.75rem 1rem;
+}
+
+.wb-label {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.wb-select,
+.wb-textarea {
+  background: var(--bg-elevated);
+  border: 1px solid var(--line-strong);
+  color: var(--ink-strong);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  padding: 8px 10px;
+  border-radius: 0;
+}
+
+.wb-select:focus,
+.wb-textarea:focus {
+  outline: 2px solid var(--accent-ink);
+  outline-offset: -1px;
+}
+
+.wb-checkbox-group {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  font-size: 0.82rem;
+  color: var(--ink);
+}
+
+/* Findings List */
+.wb-findings-list {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  max-height: 480px;
+}
+
+.wb-finding-item {
+  padding: 1rem;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.wb-finding-item:last-child {
+  border-bottom: none;
+}
+
+.wb-finding-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.wb-finding-res {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.wb-finding-desc {
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: var(--ink);
+  margin: 0;
+}
+
+.wb-finding-remed {
+  margin-top: 4px;
+  padding: 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--line);
+  font-size: 0.78rem;
+  font-family: var(--font-mono);
+  color: var(--ink-strong);
+}
+
+/* Terminal / Log Box */
+.wb-terminal-box {
+  padding: 1rem;
+  background: var(--bg-elevated);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--ink);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  flex: 1;
+}
+
+/* Code Editor Viewer */
+.wb-code-editor {
+  background: var(--bg-elevated);
+  padding: 1rem;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  flex: 1;
+  overflow-x: auto;
+}
+
+.code-line {
+  display: flex;
+  gap: 12px;
+}
+
+.line-num {
+  width: 24px;
+  color: var(--muted);
+  user-select: none;
+  text-align: right;
+}
+
+.flag-line {
+  background: rgba(239, 68, 68, 0.12);
+  border-left: 2px solid var(--sev-crit);
+  padding-left: 4px;
+}
+
+/* Graph Visualization */
+.wb-graph-canvas {
+  padding: 1.5rem;
+  background: var(--bg-elevated);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.graph-node {
+  padding: 10px 16px;
+  border: 1px solid var(--line-strong);
+  background: var(--bg);
+  text-align: center;
+  min-width: 180px;
+}
+
+.node-title {
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.node-desc {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.node-ext { border-color: var(--muted); }
+.node-comp { border-color: var(--sev-crit); background: rgba(239, 68, 68, 0.05); }
+.node-target { border-color: var(--accent-ink); background: rgba(255, 107, 53, 0.08); }
+
+.graph-edge {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+/* Table Wrappers */
+.wb-table-wrapper {
+  overflow-x: auto;
+}
+
+/* Layers Stack */
+.wb-layers-box {
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.wb-layer-item {
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  background: var(--bg-elevated);
+  font-size: 0.82rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* Traffic Stream */
+.wb-traffic-stream {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  max-height: 380px;
+}
+
+.wb-req-row {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.82rem;
+  flex-wrap: wrap;
+}
+
+.wb-req-row.blocked {
+  background: rgba(239, 68, 68, 0.05);
+}
+
+.wb-req-rule {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--muted);
+  flex: 1;
+}
+
+.wb-req-ip {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+}
+
+/* Entitlement Box */
+.wb-entitlement-box {
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.wb-ent-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.82rem;
+}
+
+/* Timeline */
+.wb-timeline {
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.wb-time-item {
+  display: flex;
+  gap: 12px;
+  font-size: 0.82rem;
+  border-left: 2px solid var(--line);
+  padding-left: 12px;
+}
+
+.time-stamp {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--muted);
+  width: 90px;
+}
+
+.time-evt {
+  color: var(--ink-strong);
+}
+
+/* Tasks Queue */
+.wb-task-list {
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.wb-task-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.85rem;
+  color: var(--ink);
+}
+
+/* Color helpers */
+.text-crit { color: var(--sev-crit); }
+.text-high { color: var(--sev-high); }
+.text-pass { color: var(--sev-pass); }
+
+/* Responsive adjustments */
+@media (max-width: 1080px) {
+  .workbench-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .workbench-sidebar {
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .workbench-nav-list {
+    flex-direction: row;
+    max-height: none;
+    overflow-x: auto;
+  }
+
+  .workbench-nav-item {
+    border-bottom: none;
+    border-right: 1px solid var(--line);
+    white-space: nowrap;
+    width: auto;
+  }
+
+  .wb-panel-grid {
+    grid-template-columns: 1fr;
+  }
+}

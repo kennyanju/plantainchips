@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GUI Workbench | CloudSecure Suite</title>
+  <meta name="description" content="Interactive graphical user interface for LauncherSecure and all 13 specialized CloudSecure security applications.">
+  <link rel="stylesheet" href="css/design-system.css">
+  <link rel="stylesheet" href="css/layout.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/workbench.css">
+  <script src="js/theme.js"></script>
+</head>
+<body>
+
+  <!-- Top Sticky Navigation Bar -->
+  <header>
+    <nav class="site-nav" id="site-nav" aria-label="Main Navigation">
+      <div class="nav-cluster-left">
+        <a href="index.html" class="nav-logo" aria-label="CloudSecure Home">
+          <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polygon points="16,3 28,9 28,21 16,29 4,21 4,9" stroke="#C84B24" />
+            <polyline points="16,3 16,29" stroke="currentColor" stroke-dasharray="2 2" />
+            <polyline points="4,9 16,16 28,9" stroke="currentColor" />
+            <circle cx="16" cy="16" r="3" fill="#C84B24" stroke="none" />
+          </svg>
+          <span>CLOUDSECURE</span>
+        </a>
+        <a href="index.html" class="nav-cell">Home</a>
+        <a href="apps.html" class="nav-cell">Apps (13)</a>
+        <a href="workbench.html" class="nav-cell active nav-mobile-keep">GUI Workbench</a>
+        <a href="rql.html" class="nav-cell">RQL Studio</a>
+        <a href="download.html" class="nav-cell">Download</a>
+        <a href="docs.html" class="nav-cell">Docs</a>
+      </div>
+
+      <div class="nav-cluster-right">
+        <a href="https://github.com/kennyanju/plantainchips" target="_blank" rel="noopener noreferrer" class="nav-cell" aria-label="GitHub Repository">GitHub</a>
+        <button id="theme-toggle-btn" class="nav-cell-btn" aria-label="Toggle light and dark mode">DARK</button>
+        <a href="workbench.html" class="nav-cell nav-cta">Launch GUI</a>
+        <button id="mobile-menu-btn" class="nav-cell-btn mobile-menu-btn" aria-label="Toggle Menu" aria-expanded="false">MENU</button>
+      </div>
+    </nav>
+  </header>
+
+  <!-- Mobile Drawer -->
+  <div id="mobile-drawer" class="mobile-drawer" role="dialog" aria-modal="true" aria-label="Mobile Navigation">
+    <a href="index.html" class="nav-cell">Home</a>
+    <a href="apps.html" class="nav-cell">Apps (13)</a>
+    <a href="workbench.html" class="nav-cell active">GUI Workbench</a>
+    <a href="rql.html" class="nav-cell">RQL Studio</a>
+    <a href="download.html" class="nav-cell">Download</a>
+    <a href="docs.html" class="nav-cell">Documentation</a>
+    <a href="https://github.com/kennyanju/plantainchips" target="_blank" rel="noopener noreferrer" class="nav-cell">GitHub Repo</a>
+  </div>
+
+  <main class="arch-container">
+    <span class="tick tick-top-left" aria-hidden="true"></span>
+    <span class="tick tick-top-right" aria-hidden="true"></span>
+    <span class="tick tick-bottom-left" aria-hidden="true"></span>
+    <span class="tick tick-bottom-right" aria-hidden="true"></span>
+
+    <!-- Hero Header -->
+    <section class="hero-bay" aria-labelledby="workbench-heading">
+      <div class="hero-tag">
+        <span class="hero-tag-pulse" aria-hidden="true"></span>
+        <span>Interactive Graphical Security Operations Center · Zero CLI Required</span>
+      </div>
+      <h1 id="workbench-heading" class="hero-headline">
+        CloudSecure <span class="serif-word">GUI Workbench</span>
+      </h1>
+      <p class="hero-lead">
+        Execute interactive audits, inspect attack paths, classify data stores, and verify software supply chains across all 14 applications outside the terminal.
+      </p>
+    </section>
+
+    <!-- Eyebrow Bar -->
+    <div class="section-eyebrow">
+      <div class="hud-label"><span class="hud-index">01</span> / Application Workbench & Telemetry Stage</div>
+      <div class="hud-label">14 Native Security Workbenches</div>
+    </div>
+
+    <!-- Main Workbench Area -->
+    <div class="workbench-layout">
+      <!-- Left Sidebar: App Navigator -->
+      <aside class="workbench-sidebar" aria-label="Security Applications">
+        <div class="workbench-sidebar-header">
+          <span>Select Application</span>
+          <span>14 APPS</span>
+        </div>
+        <div class="workbench-nav-list" id="workbench-nav-list">
+          <!-- Populated by workbench.js -->
+        </div>
+      </aside>
+
+      <!-- Right Main Stage -->
+      <section class="workbench-stage" aria-label="Active Security Workbench">
+        <!-- Active App Header -->
+        <div class="wb-app-header">
+          <div class="wb-app-meta">
+            <img id="active-app-icon" class="wb-app-icon" src="images/apps/01-posture.svg" alt="" aria-hidden="true">
+            <div>
+              <h2 id="active-app-title" class="wb-app-title">PostureSecure</h2>
+              <div id="active-app-subtitle" class="wb-app-subtitle">Cloud Security Posture Management (CSPM)</div>
+              <p id="active-app-desc" class="wb-app-desc">Multi-cloud resource posture analyzer enforcing CIS 3.0 benchmarks, drift detection, and signed Terraform remediation.</p>
+            </div>
+          </div>
+          <span id="active-app-badge" class="badge-pillar">CSPM</span>
+        </div>
+
+        <!-- Workbench Controls Toolbar -->
+        <div class="wb-toolbar">
+          <div class="wb-toolbar-left">
+            <button id="btn-run-action" class="btn btn-primary btn-sm" type="button">
+              <span>Run:</span> Execute Scan
+            </button>
+            <span id="workbench-status" class="status-badge status-pass">SYSTEM READY (OK)</span>
+          </div>
+          <div class="wb-toolbar-right">
+            <button id="btn-export-json" class="btn btn-secondary btn-sm" type="button">Export JSON</button>
+            <button id="btn-export-sarif" class="btn btn-secondary btn-sm" type="button">Export SARIF</button>
+          </div>
+        </div>
+
+        <!-- Dynamic Workbench Panels Container -->
+        <div id="active-workbench-view">
+          <!-- Populated dynamically by workbench.js based on selected app -->
+        </div>
+      </section>
+    </div>
+
+    <!-- Eyebrow 02: Verification Matrix -->
+    <div class="section-eyebrow" style="margin-top: 2rem;">
+      <div class="hud-label"><span class="hud-index">02</span> / Execution Architecture</div>
+      <div class="hud-label">Client-Side Evaluation & Cryptographic Signatures</div>
+    </div>
+
+    <!-- Quick Reference Callout -->
+    <div class="rql-studio-bay" style="padding: 1.5rem 2rem;">
+      <div style="font-size: 0.88rem; color: var(--ink); line-height: 1.6;">
+        <strong>Offline & Zero-Exfiltration Guarantee:</strong>
+        All GUI workbench operations evaluate locally within your browser sandbox against loaded telemetry feeds. No cloud credentials, API tokens, or data store records leave your machine. To automate these scans in headless CI/CD environments or connect them to AI coding agents, run the corresponding CLI with the <code>--mcp</code> flag.
+      </div>
+    </div>
+  </main>
+
+  <!-- Site Footer -->
+  <footer class="site-footer">
+    <div class="footer-grid">
+      <div>
+        <div class="footer-brand">CLOUDSECURE</div>
+        <p class="footer-tagline">
+          Thirteen security applications. One unified architecture. Rebuilt in 100% pure Rust.
+        </p>
+      </div>
+      <div>
+        <div class="footer-col-title">NAVIGATION</div>
+        <div class="footer-links">
+          <a href="index.html">Home</a>
+          <a href="apps.html">Applications (13)</a>
+          <a href="workbench.html">GUI Workbench</a>
+          <a href="rql.html">RQL Studio</a>
+          <a href="download.html">Download Suite</a>
+          <a href="docs.html">Documentation</a>
+        </div>
+      </div>
+      <div>
+        <div class="footer-col-title">SECURITY PILLARS</div>
+        <div class="footer-links">
+          <a href="workbench.html?app=posturesecure">PostureSecure (CSPM)</a>
+          <a href="workbench.html?app=datasecure">DataSecure (DSPM)</a>
+          <a href="workbench.html?app=workloadsecure">WorkloadSecure (CWPP)</a>
+          <a href="workbench.html?app=identitysecure">IdentitySecure (CIEM)</a>
+          <a href="workbench.html?app=aisecure">AiSecure (AI-SPM)</a>
+          <a href="workbench.html?app=compliancesecure">ComplianceSecure</a>
+        </div>
+      </div>
+      <div>
+        <div class="footer-col-title">SOURCE & SPECS</div>
+        <div class="footer-links">
+          <a href="https://github.com/kennyanju/plantainchips" target="_blank" rel="noopener noreferrer">GitHub Monorepo</a>
+          <a href="https://github.com/kennyanju/plantainchips/releases" target="_blank" rel="noopener noreferrer">Official Releases</a>
+          <a href="docs.html">MCP Tool Schemas</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="legal-disclaimer">
+      CloudSecure is an independent, clean-room open-source security tool suite written in Rust. It is not affiliated with, endorsed by, or sponsored by enterprise CNAPP Networks, Inc. All trademarks are the property of their respective owners.
+    </div>
+  </footer>
+
+  <script src="js/app.js"></script>
+  <script src="js/workbench.js"></script>
+</body>
+</html>
