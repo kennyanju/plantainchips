@@ -73,9 +73,79 @@
       </p>
     </section>
 
-    <!-- Eyebrow 01: MCP Setup -->
+    <!-- Eyebrow 01: Operations & Interfaces -->
     <div class="section-eyebrow">
-      <div class="hud-label"><span class="hud-index">01</span> / Model Context Protocol (MCP) Setup</div>
+      <div class="hud-label"><span class="hud-index">01</span> / Dual Interfaces: GUI Workbench & Terminal CLI</div>
+      <div class="hud-label">Client-Side Visual SOC · High-Performance Pure Rust CLI</div>
+    </div>
+
+    <!-- Interface Section -->
+    <section class="rql-studio-bay" aria-label="Operations Overview">
+      <p class="app-desc" style="margin-bottom: 1.25rem;">
+        CloudSecure is engineered with dual control planes: a client-side Graphical User Interface (GUI) Workbench for interactive visual audits and a headless terminal CLI for high-speed script automation and CI/CD pipelines. For a complete walkthrough, read the comprehensive <a href="https://github.com/kennyanju/plantainchips/blob/main/TUTORIAL.md" target="_blank" rel="noopener noreferrer"><strong>CloudSecure Step-by-Step Tutorial (TUTORIAL.md)</strong></a>.
+      </p>
+
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.25rem; margin-top: 1rem;">
+        <div class="wb-panel" style="padding: 1.25rem; border: 1px solid var(--line); background: var(--bg);">
+          <div class="hud-label" style="margin-bottom: 8px;"><span class="hud-index">01.A</span> / Interactive GUI Workbench</div>
+          <h3 style="margin: 0 0 8px 0; font-size: 1.1rem;">Visual Multi-Cloud Security Operations</h3>
+          <p class="app-desc" style="margin-bottom: 12px;">
+            Access dedicated visual workbays for all 14 applications in your browser. Inspect attack path directed graphs, container image layer stacks, live API firewall traffic, and executive compliance dials.
+          </p>
+          <div class="code-box" style="margin-bottom: 12px;">
+            # Launch locally in browser:<br>
+            open web/workbench.html<br><br>
+            # Or run local HTTP server:<br>
+            python3 -m http.server 8000 -d web
+          </div>
+          <a href="workbench.html" class="btn btn-primary btn-sm">Launch GUI Workbench</a>
+        </div>
+
+        <div class="wb-panel" style="padding: 1.25rem; border: 1px solid var(--line); background: var(--bg);">
+          <div class="hud-label" style="margin-bottom: 8px;"><span class="hud-index">01.B</span> / Standalone Terminal CLI Suite</div>
+          <h3 style="margin: 0 0 8px 0; font-size: 1.1rem;">Headless Automation & CI/CD Pipeline Gates</h3>
+          <p class="app-desc" style="margin-bottom: 12px;">
+            Fourteen standalone command-line executables installing directly to <code>~/.cloudsecure/bin</code>. Fast execution with machine-readable SARIF, JSON, and CSV serialization.
+          </p>
+          <div class="code-box" style="margin-bottom: 12px;">
+            # Install all 14 binaries via curl:<br>
+            curl -fsSL https://raw.githubusercontent.com/kennyanju/plantainchips/main/web/install.sh | sh<br><br>
+            # List suite catalog:<br>
+            launchersecure list
+          </div>
+          <a href="download.html" class="btn btn-secondary btn-sm">Download CLI Binaries</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- Eyebrow 02: RQL Language -->
+    <div class="section-eyebrow">
+      <div class="hud-label"><span class="hud-index">02</span> / Resource Query Language (RQL) Grammar</div>
+      <div class="hud-label">Declarative Multi-Cloud Query Engine · Sub-50ms AST Evaluation</div>
+    </div>
+
+    <!-- RQL Grammar Section -->
+    <section class="rql-studio-bay" aria-label="RQL Grammar">
+      <p class="app-desc" style="margin-bottom: 1rem;">
+        Resource Query Language (RQL) is a declarative domain-specific language for multi-cloud security querying across posture, network, identity, and data stores:
+      </p>
+      <div class="code-box" style="margin-bottom: 1.25rem;">
+        # RQL Canonical Syntax Structure:<br>
+        &lt;CLAUSE&gt; from &lt;TARGET&gt; where &lt;PREDICATE&gt; [and &lt;PREDICATE&gt;...]<br><br>
+        # Example CSPM Query (PostureSecure):<br>
+        config from cloud.resource where cloud.type = 'aws' and api.name = 'aws-s3-bucket' and json.rule = publicAccessBlockConfiguration.restrictPublicBuckets is false<br><br>
+        # Example CIEM Query (IdentitySecure):<br>
+        iam from cloud.entitlements where source.type = 'role' and dest.action contains 'iam:*' and dest.resource = '*'
+      </div>
+      <div style="display: flex; gap: 10px;">
+        <a href="rql.html" class="btn btn-primary btn-sm">Open Live RQL Studio</a>
+        <a href="workbench.html?app=policysecure" class="btn btn-secondary btn-sm">PolicySecure IDE</a>
+      </div>
+    </section>
+
+    <!-- Eyebrow 03: MCP Setup -->
+    <div class="section-eyebrow">
+      <div class="hud-label"><span class="hud-index">03</span> / Model Context Protocol (MCP) Setup</div>
       <div class="hud-label">Claude Desktop · Cursor · Windsurf · Gemini CLI Integration</div>
     </div>
 
@@ -130,9 +200,9 @@
       </div>
     </section>
 
-    <!-- Eyebrow 02: MCP Registered Tools Catalog -->
+    <!-- Eyebrow 04: MCP Registered Tools Catalog -->
     <div class="section-eyebrow">
-      <div class="hud-label"><span class="hud-index">02</span> / Model Context Protocol Registered Tool Catalog</div>
+      <div class="hud-label"><span class="hud-index">04</span> / Model Context Protocol Registered Tool Catalog</div>
       <div class="hud-label">JSON-RPC 2.0 Stdio Interface · Deterministic Automation</div>
     </div>
 
@@ -236,9 +306,9 @@
       </table>
     </section>
 
-    <!-- Eyebrow 03: Headless CLI Reference -->
+    <!-- Eyebrow 05: Headless CLI Reference -->
     <div class="section-eyebrow">
-      <div class="hud-label"><span class="hud-index">03</span> / Headless CLI Reference & Formatting</div>
+      <div class="hud-label"><span class="hud-index">05</span> / Headless CLI Reference & Formatting</div>
       <div class="hud-label">CI/CD Gate Integration · SARIF & JSON Outputs</div>
     </div>
 
@@ -296,14 +366,16 @@
           <ul class="footer-links">
             <li><a href="index.html">Home Overview</a></li>
             <li><a href="apps.html">All 13 Applications</a></li>
+            <li><a href="workbench.html">GUI Workbench</a></li>
             <li><a href="rql.html">RQL Studio</a></li>
             <li><a href="download.html">Download Matrix</a></li>
             <li><a href="docs.html">Documentation</a></li>
           </ul>
         </div>
         <div class="footer-col">
-          <h4>Repository Docs</h4>
+          <h4>Tutorials & Specs</h4>
           <ul class="footer-links">
+            <li><a href="https://github.com/kennyanju/plantainchips/blob/main/TUTORIAL.md" target="_blank" rel="noopener noreferrer">Step-by-Step Tutorial</a></li>
             <li><a href="https://github.com/kennyanju/plantainchips/blob/main/project-docs/cloudsecure-architecture.md" target="_blank" rel="noopener noreferrer">Architecture Doc</a></li>
             <li><a href="https://github.com/kennyanju/plantainchips/blob/main/project-specs/cloudsecure-master-spec.md" target="_blank" rel="noopener noreferrer">Master Spec</a></li>
             <li><a href="https://github.com/kennyanju/plantainchips" target="_blank" rel="noopener noreferrer">GitHub Repo</a></li>
