@@ -243,6 +243,62 @@ def to_csv(bundle):
         lines.append(f"\"{c['control_id']}\",\"{c['framework']}\",\"{escaped_title}\",\"{c['status']}\",{c['failing_findings_count']},\"{escaped_summary}\"")
     return "\n".join(lines) + "\n"
 
+def crosswalk_controls(findings):
+    crosswalk = []
+    for f in findings:
+        ctrls = f.get("framework_controls", [])
+        mapping = {fw_id: [] for fw_id in FRAMEWORKS}
+        for c in ctrls:
+            for fw_id, fw_data in FRAMEWORKS.items():
+                for cid, ctitle, _ in fw_data["controls"]:
+                    if cid.lower() in c.lower() or c.lower() in cid.lower():
+                        mapping[fw_id].append(cid)
+        for k in mapping:
+            mapping[k] = sorted(list(set(mapping[k])))
+        crosswalk.append({
+            "finding_id": f.get("id"),
+            "title": f.get("title"),
+            "source_module": f.get("source_module"),
+            "severity": f.get("severity"),
+            "original_controls": ctrls,
+            "crosswalk": mapping
+        })
+    return crosswalk
+
+def simulate_remediation_queue(findings, completed_remediation_ids):
+    top10 = prioritize_remediations(findings)
+    completed_map = {r["remediation_id"]: r for r in top10}
+
+    eliminated_resources = set()
+    for rem_id in completed_remediation_ids:
+        if rem_id in completed_map:
+            eliminated_resources.add(completed_map[rem_id]["resource_id"])
+
+    remaining_findings = [
+        f for f in findings
+        if f.get("resource_id") not in eliminated_resources and f.get("id") not in completed_remediation_ids
+    ]
+
+    before_scores = {}
+    after_scores = {}
+    improvements = {}
+
+    for fw_id in FRAMEWORKS:
+        b = evaluate_framework(findings, fw_id)
+        a = evaluate_framework(remaining_findings, fw_id)
+        before_scores[fw_id] = b
+        after_scores[fw_id] = a
+        improvements[fw_id] = round(a["readiness_percentage"] - b["readiness_percentage"], 1)
+
+    return {
+        "completed_remediations": completed_remediation_ids,
+        "initial_findings_count": len(findings),
+        "remaining_findings_count": len(remaining_findings),
+        "before_scores": before_scores,
+        "after_scores": after_scores,
+        "readiness_improvements": improvements
+    }
+
 def run_mcp():
     for line in sys.stdin:
         line = line.strip()
@@ -254,6 +310,8 @@ def run_mcp():
             continue
 
         req_id = req.get("id")
+        if req_id is None:
+            continue
         method = req.get("method", "")
 
         if method == "initialize":
@@ -302,6 +360,30 @@ def run_mcp():
                                 },
                                 "required": ["findings_json", "framework"]
                             }
+                        },
+                        {
+                            "name": "pulse_crosswalk_controls",
+                            "description": "Map technical findings across all 6 compliance frameworks",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {"findings_json": {"type": "string"}},
+                                "required": ["findings_json"]
+                            }
+                        },
+                        {
+                            "name": "pulse_simulate_remediations",
+                            "description": "Simulate live readiness percentage improvement upon marking remediations complete",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "findings_json": {"type": "string"},
+                                    "completed_remediations": {
+                                        "type": "array",
+                                        "items": {"type": "string"}
+                                    }
+                                },
+                                "required": ["findings_json", "completed_remediations"]
+                            }
                         }
                     ]
                 }
@@ -337,15 +419,33 @@ def run_mcp():
                     tool_res = bundle
                 except Exception as e:
                     tool_res = {"error": str(e)}
+            elif name == "pulse_crosswalk_controls":
+                f_str = args.get("findings_json", "[]")
+                try:
+                    findings = json.loads(f_str)
+                    tool_res = {"crosswalk": crosswalk_controls(findings)}
+                except Exception as e:
+                    tool_res = {"error": str(e)}
+            elif name == "pulse_simulate_remediations":
+                f_str = args.get("findings_json", "[]")
+                completed = args.get("completed_remediations", [])
+                try:
+                    findings = json.loads(f_str)
+                    tool_res = simulate_remediation_queue(findings, completed)
+                except Exception as e:
+                    tool_res = {"error": str(e)}
             else:
                 tool_res = {"error": f"Unknown tool: {name}"}
 
+            call_result = {
+                "content": [{"type": "text", "text": json.dumps(tool_res, indent=2)}]
+            }
+            if isinstance(tool_res, dict) and "error" in tool_res:
+                call_result["isError"] = True
             resp = {
                 "jsonrpc": "2.0",
                 "id": req_id,
-                "result": {
-                    "content": [{"type": "text", "text": json.dumps(tool_res, indent=2)}]
-                }
+                "result": call_result
             }
         else:
             resp = {
@@ -369,13 +469,13 @@ def main():
     # aggregate
     p_agg = subparsers.add_parser("aggregate", help="Ingest posture findings and summarize framework audit readiness")
     p_agg.add_argument("-s", "--snapshot", required=True, help="Path to findings JSON or .csec snapshot")
-    p_agg.add_argument("-o", "--format", choices=["table", "json"], default="table")
+    p_agg.add_argument("-o", "--format", choices=["table", "json", "sarif"], default="table")
 
     # top-remediations
     p_top = subparsers.add_parser("top-remediations", help="Display Prioritized Top-10 Breach-Stopping Remediation Queue")
     p_top.add_argument("-s", "--snapshot", required=True, help="Path to findings JSON or .csec snapshot")
     p_top.add_argument("-l", "--limit", type=int, default=10, help="Max number of ranked remediations")
-    p_top.add_argument("-o", "--format", choices=["table", "json"], default="table")
+    p_top.add_argument("-o", "--format", choices=["table", "json", "sarif"], default="table")
 
     # export-audit
     p_exp = subparsers.add_parser("export-audit", help="Compile and export signed multi-format audit package")
@@ -383,6 +483,17 @@ def main():
     p_exp.add_argument("-f", "--framework", default="soc2", help="Compliance framework (soc2, iso27001, pci, hipaa, nist, fedramp)")
     p_exp.add_argument("--organization", default="Acme Cloud Infrastructure", help="Organization name for audit attestations")
     p_exp.add_argument("-o", "--out", help="Output directory to export audit package files")
+
+    # crosswalk
+    p_cross = subparsers.add_parser("crosswalk", help="Map technical findings across compliance frameworks")
+    p_cross.add_argument("-s", "--snapshot", required=True, help="Path to findings JSON or .csec snapshot")
+    p_cross.add_argument("-o", "--format", choices=["table", "json", "csv"], default="table")
+
+    # simulate
+    p_sim = subparsers.add_parser("simulate", help="Simulate readiness score improvement from completing remediations")
+    p_sim.add_argument("-s", "--snapshot", required=True, help="Path to findings JSON or .csec snapshot")
+    p_sim.add_argument("-c", "--complete", nargs="+", required=True, help="Remediation IDs to mark completed (e.g. REM-01 REM-02)")
+    p_sim.add_argument("-o", "--format", choices=["table", "json"], default="table")
 
     args = parser.parse_args()
 
@@ -397,6 +508,28 @@ def main():
 
         if args.format == "json":
             print(json.dumps(summaries, indent=2))
+        elif args.format == "sarif":
+            results = []
+            for fw in FRAMEWORKS:
+                ctrls = compile_controls(findings, fw)
+                for c in ctrls:
+                    if c["status"] == "FAILED":
+                        results.append({
+                            "ruleId": f"COMPLIANCE-{c['framework'].upper()}-{c['control_id']}",
+                            "level": "error" if any("CRITICAL" in ref for ref in c["findings_refs"]) else "warning",
+                            "message": {
+                                "text": f"{c['title']}: {c['failing_findings_count']} non-compliant finding(s) violating control {c['control_id']}"
+                            }
+                        })
+            sarif = {
+                "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+                "version": "2.1.0",
+                "runs": [{
+                    "tool": {"driver": {"name": "ComplianceSecure", "version": "0.1.0"}},
+                    "results": results
+                }]
+            }
+            print(json.dumps(sarif, indent=2))
         else:
             print("=== ComplianceSecure: Multi-Framework Executive Readiness ===")
             print(f"Total Ingested Cross-Pillar Findings: {len(findings)}\n")
@@ -418,6 +551,23 @@ def main():
 
         if args.format == "json":
             print(json.dumps(rems, indent=2))
+        elif args.format == "sarif":
+            sarif = {
+                "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+                "version": "2.1.0",
+                "runs": [{
+                    "tool": {"driver": {"name": "ComplianceSecure", "version": "0.1.0"}},
+                    "results": [{
+                        "ruleId": r["remediation_id"],
+                        "level": "error" if r["severity"] == "CRITICAL" else "warning",
+                        "message": {"text": f"Remediation #{r['rank']} [{r['severity']}]: {r['title']} on {r['resource_id']}"},
+                        "fixes": [{
+                            "description": {"text": r["remediation_command"]}
+                        }]
+                    } for r in rems]
+                }]
+            }
+            print(json.dumps(sarif, indent=2))
         else:
             print(f"=== Prioritized Top-{args.limit} Breach-Stopping Remediation Queue ===")
             print("Ranked by cross-pillar blast-radius reduction across all 12 CloudSecure modules:\n")
@@ -462,6 +612,47 @@ def main():
             print(f"Bundle SHA-256: {bundle['manifest_sha256']}")
         else:
             print(to_markdown(bundle))
+
+    elif args.subcommand == "crosswalk":
+        with open(args.snapshot, "r", encoding="utf-8") as f:
+            findings = json.load(f)
+        cw = crosswalk_controls(findings)
+        if args.format == "json":
+            print(json.dumps(cw, indent=2))
+        elif args.format == "csv":
+            print("FindingId,Title,Module,Severity,SOC2,ISO27001,PCI,HIPAA,NIST,FedRAMP")
+            for c in cw:
+                m = c["crosswalk"]
+                print(f"\"{c['finding_id']}\",\"{c['title']}\",\"{c['source_module']}\",\"{c['severity']}\",\"{';'.join(m['soc2'])}\",\"{';'.join(m['iso27001'])}\",\"{';'.join(m['pci'])}\",\"{';'.join(m['hipaa'])}\",\"{';'.join(m['nist'])}\",\"{';'.join(m['fedramp'])}\"")
+        else:
+            print("=== ComplianceSecure: Cross-Framework Control Crosswalk ===")
+            print(f"{'FINDING ID':<20} {'SEV':<10} {'MODULE':<14} {'SOC2':<10} {'PCI':<10} {'TITLE'}")
+            print("-" * 88)
+            for c in cw:
+                m = c["crosswalk"]
+                soc = ",".join(m.get("soc2", [])) or "-"
+                pci = ",".join(m.get("pci", [])) or "-"
+                title = c["title"] if len(c["title"]) <= 28 else c["title"][:25] + "..."
+                print(f"{c['finding_id']:<20} {c['severity']:<10} {c['source_module']:<14} {soc:<10} {pci:<10} {title}")
+
+    elif args.subcommand == "simulate":
+        with open(args.snapshot, "r", encoding="utf-8") as f:
+            findings = json.load(f)
+        sim_res = simulate_remediation_queue(findings, args.complete)
+        if args.format == "json":
+            print(json.dumps(sim_res, indent=2))
+        else:
+            print("=== Remediation Queue What-If Simulation ===")
+            print(f"Completed Remediations: {', '.join(sim_res['completed_remediations'])}")
+            print(f"Findings: {sim_res['initial_findings_count']} initial -> {sim_res['remaining_findings_count']} remaining\n")
+            print(f"{'FRAMEWORK':<12} {'BEFORE %':<10} {'AFTER %':<10} {'GAIN'}")
+            print("-" * 45)
+            for fw in FRAMEWORKS:
+                b_pct = sim_res["before_scores"][fw]["readiness_percentage"]
+                a_pct = sim_res["after_scores"][fw]["readiness_percentage"]
+                gain = sim_res["readiness_improvements"][fw]
+                gain_str = f"+{gain:.1f}%" if gain > 0 else "0.0%"
+                print(f"{fw:<12} {b_pct:>7.1f}%  {a_pct:>7.1f}%   {gain_str}")
 
     else:
         print("ComplianceSecure CLI: Use --help for subcommands or --mcp for Model Context Protocol mode.")

@@ -540,6 +540,164 @@
   color: var(--ink);
 }
 
+/* Toast Notifications */
+.wb-toast-container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.wb-toast {
+  pointer-events: auto;
+  background: var(--bg-elevated);
+  border: 1px solid var(--line-strong);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  padding: 12px 18px;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--ink-strong);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  animation: wbToastSlideIn 180ms ease-out;
+  max-width: 460px;
+}
+
+.wb-toast.pass {
+  border-left: 4px solid var(--sev-pass);
+}
+
+.wb-toast.warn {
+  border-left: 4px solid var(--sev-med);
+}
+
+.wb-toast.crit {
+  border-left: 4px solid var(--sev-crit);
+}
+
+@keyframes wbToastSlideIn {
+  from {
+    transform: translateY(12px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Modal Dialog */
+.wb-modal-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(2px);
+  z-index: 999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.wb-modal {
+  background: var(--bg);
+  border: 1px solid var(--line-strong);
+  width: 100%;
+  max-width: 580px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+}
+
+.wb-modal-header {
+  padding: 14px 18px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.wb-modal-body {
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.wb-modal-footer {
+  padding: 12px 18px;
+  background: var(--bg-elevated);
+  border-top: 1px solid var(--line);
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+/* Diff Highlighting */
+.diff-add {
+  background: rgba(34, 197, 94, 0.12);
+  color: var(--sev-pass);
+  padding: 2px 4px;
+}
+
+.diff-del {
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--sev-crit);
+  padding: 2px 4px;
+}
+
+/* Pill Buttons */
+.wb-pill-group {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.wb-pill-btn {
+  background: var(--bg-elevated);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+
+.wb-pill-btn:hover {
+  border-color: var(--line-strong);
+  color: var(--ink-strong);
+}
+
+.wb-pill-btn.active {
+  background: var(--invert-bg);
+  color: var(--invert-fg);
+  border-color: var(--invert-bg);
+}
+
+/* State Box Helper for Empty / Error / Loading */
+.wb-state-box {
+  padding: 2rem;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: var(--bg-elevated);
+  border: 1px dashed var(--line);
+  margin: 1rem;
+}
+
 /* Color helpers */
 .text-crit { color: var(--sev-crit); }
 .text-high { color: var(--sev-high); }

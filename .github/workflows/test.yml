@@ -1,0 +1,83 @@
+name: Test & Verify CloudSecure Suite
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-suite:
+    name: Unit Tests & Static Verification
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          package-manager-cache: false
+
+      - name: Rust Workspace Check & Test
+        run: |
+          cargo check --workspace
+          cargo test --workspace
+
+      - name: Python CLI Unit & Subprocess Test Suite
+        run: |
+          python3 -m unittest discover -s tests -p "test_*.py"
+
+      - name: Node.js Syntax Check
+        run: |
+          node --check web/js/rql-engine.js
+          node --check web/js/app.js
+          node --check web/js/theme.js
+          node --check web/js/workbench.js
+
+      - name: Node.js Workbench Test Suite
+        run: |
+          node --test tests/test_workbench_helpers.test.js
+
+      - name: Release Packaging Portability Check
+        run: |
+          ./scripts/package-release.sh
+
+      - name: Strict Antislop Verification (Zero Em Dashes)
+        run: |
+          python3 -c "
+          import os, sys
+          skip_dirs = {'.git', 'target', 'dist', 'node_modules', '__pycache__', '.cloudsecure'}
+          skip_exts = ('.tar.gz', '.zip', '.png', '.jpg', '.jpeg', '.gif', '.ico', '.svg', '.woff', '.woff2')
+          matches = []
+          for root, dirs, files in os.walk('.'):
+              dirs[:] = [d for d in dirs if d not in skip_dirs]
+              for name in files:
+                  if name.endswith(skip_exts):
+                      continue
+                  path = os.path.join(root, name)
+                  try:
+                      with open(path, 'rb') as f:
+                          if b'\xe2\x80\x94' in f.read():
+                              matches.append(path)
+                  except (OSError, PermissionError):
+                      pass
+          if matches:
+              print('Em dashes found in:', matches)
+              sys.exit(1)
+          print('Verified zero em dashes across all source files.')
+          "

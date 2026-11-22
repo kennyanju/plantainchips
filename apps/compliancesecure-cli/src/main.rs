@@ -1,6 +1,8 @@
 use clap::{Parser, Subcommand, ValueEnum};
+use cloudsecure_types::Severity;
 use compliancesecure::{
-    AuditBundleExporter, ComplianceFramework, IngestedPostureFinding, UnifiedPostureAggregator,
+    AuditBundleExporter, ComplianceFramework, ControlStatus, IngestedPostureFinding,
+    UnifiedPostureAggregator,
 };
 use std::fs;
 use std::io::{self, BufRead, Write};
@@ -71,6 +73,7 @@ enum Commands {
 enum OutputFormat {
     Table,
     Json,
+    Sarif,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -102,6 +105,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             match format {
                 OutputFormat::Json => {
                     println!("{}", serde_json::to_string_pretty(&summaries)?);
+                }
+                OutputFormat::Sarif => {
+                    let mut results = Vec::new();
+                    for &fw in &frameworks {
+                        let controls = agg.compile_controls_for_framework(fw);
+                        for c in controls {
+                            if c.status == ControlStatus::Failed {
+                                results.push(serde_json::json!({
+                                    "ruleId": format!("COMPLIANCE-{}-{}", c.framework.to_uppercase(), c.control_id),
+                                    "level": "warning",
+                                    "message": {
+                                        "text": format!("{}: {} non-compliant finding(s) violating control {}", c.title, c.failing_findings_count, c.control_id)
+                                    }
+                                }));
+                            }
+                        }
+                    }
+                    let sarif = serde_json::json!({
+                        "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+                        "version": "2.1.0",
+                        "runs": [{
+                            "tool": { "driver": { "name": "ComplianceSecure", "version": "0.1.0" } },
+                            "results": results
+                        }]
+                    });
+                    println!("{}", serde_json::to_string_pretty(&sarif)?);
                 }
                 OutputFormat::Table => {
                     println!("=== ComplianceSecure: Multi-Framework Executive Readiness ===");
@@ -138,6 +167,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             match format {
                 OutputFormat::Json => {
                     println!("{}", serde_json::to_string_pretty(&limited)?);
+                }
+                OutputFormat::Sarif => {
+                    let results: Vec<_> = limited.iter().map(|r| {
+                        let level = match r.severity {
+                            Severity::Critical | Severity::High => "error",
+                            Severity::Medium => "warning",
+                            _ => "note",
+                        };
+                        serde_json::json!({
+                            "ruleId": r.remediation_id,
+                            "level": level,
+                            "message": {
+                                "text": format!("Remediation #{} [{}]: {} on {}", r.rank, r.severity.as_str(), r.title, r.resource_id)
+                            },
+                            "fixes": [{
+                                "description": { "text": r.remediation_command }
+                            }]
+                        })
+                    }).collect();
+                    let sarif = serde_json::json!({
+                        "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+                        "version": "2.1.0",
+                        "runs": [{
+                            "tool": { "driver": { "name": "ComplianceSecure", "version": "0.1.0" } },
+                            "results": results
+                        }]
+                    });
+                    println!("{}", serde_json::to_string_pretty(&sarif)?);
                 }
                 OutputFormat::Table => {
                     println!("=== Prioritized Top-{} Breach-Stopping Remediation Queue ===", limit);
@@ -220,7 +277,10 @@ fn run_mcp_server() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         let request: serde_json::Value = serde_json::from_str(&line)?;
-        let id = request.get("id").cloned();
+        let id = match request.get("id") {
+            Some(v) if !v.is_null() => v.clone(),
+            _ => continue, // JSON-RPC notifications must not receive a response
+        };
         let method = request.get("method").and_then(|m| m.as_str()).unwrap_or("");
 
         let response = match method {
@@ -338,17 +398,22 @@ fn run_mcp_server() -> Result<(), Box<dyn std::error::Error>> {
                     _ => serde_json::json!({ "error": format!("Unknown tool: {}", name) }),
                 };
 
+                let is_error = tool_result.get("error").is_some();
+                let mut res_obj = serde_json::json!({
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": serde_json::to_string_pretty(&tool_result)?
+                        }
+                    ]
+                });
+                if is_error {
+                    res_obj["isError"] = serde_json::json!(true);
+                }
                 serde_json::json!({
                     "jsonrpc": "2.0",
                     "id": id,
-                    "result": {
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": serde_json::to_string_pretty(&tool_result)?
-                            }
-                        ]
-                    }
+                    "result": res_obj
                 })
             }
             _ => serde_json::json!({

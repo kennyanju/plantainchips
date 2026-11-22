@@ -340,6 +340,38 @@ def run_unit_tests(pack):
         "execution_duration_ms": duration_ms
     }
 
+def compute_pack_state_hash(pack):
+    h = hashlib.sha256()
+    meta_str = f"{pack.get('name', '')}:{pack.get('version', '')}:{pack.get('author', '')}"
+    h.update(meta_str.encode("utf-8"))
+    for rule in pack.get("rules", []):
+        rule_str = f"{rule.get('id', '')}:{rule.get('family', '')}:{rule.get('severity', '')}:{rule.get('rql_query', '')}"
+        rule_hash = hashlib.sha256(rule_str.encode("utf-8")).hexdigest()
+        h.update(rule_hash.encode("utf-8"))
+    return h.hexdigest()
+
+def export_signed_policy_pack(pack, output_path=None):
+    report = validate_pack(pack)
+    if not report["is_valid"]:
+        raise ValueError(f"Cannot export invalid policy pack: {report['errors']}")
+    test_report = run_unit_tests(pack)
+    if test_report["failed_rules"] > 0:
+        raise ValueError("Cannot export policy pack with failing unit tests")
+
+    digest = compute_pack_state_hash(pack)
+    signed_pack = dict(pack)
+    signed_pack["metadata"] = {
+        "state_hash": digest,
+        "exported_at": "2026-10-20T00:00:00Z",
+        "verified_rules": len(pack.get("rules", [])),
+        "test_status": "PASSED"
+    }
+
+    if output_path:
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(signed_pack, f, indent=2)
+    return signed_pack, digest
+
 def print_explain_tree(node, depth=0):
     indent = "  " * depth
     ntype = node.get("node_type", "")
@@ -360,6 +392,8 @@ def run_mcp():
             continue
 
         req_id = req.get("id")
+        if req_id is None:
+            continue
         method = req.get("method", "")
 
         if method == "initialize":
@@ -404,6 +438,15 @@ def run_mcp():
                                 "properties": {"pack_json": {"type": "string"}},
                                 "required": ["pack_json"]
                             }
+                        },
+                        {
+                            "name": "policy_export_signed_pack",
+                            "description": "Validate, run test fixtures, and export cryptographically sealed policy pack with state_hash",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {"pack_json": {"type": "string"}},
+                                "required": ["pack_json"]
+                            }
                         }
                     ]
                 }
@@ -431,15 +474,26 @@ def run_mcp():
                     tool_res = validate_pack(p)
                 except Exception as e:
                     tool_res = {"error": f"Invalid pack JSON: {e}"}
+            elif name == "policy_export_signed_pack":
+                pack_str = args.get("pack_json", "{}")
+                try:
+                    p = json.loads(pack_str)
+                    signed, digest = export_signed_policy_pack(p)
+                    tool_res = {"signed_pack": signed, "state_hash": digest}
+                except Exception as e:
+                    tool_res = {"error": str(e)}
             else:
                 tool_res = {"error": f"Unknown tool: {name}"}
 
+            call_result = {
+                "content": [{"type": "text", "text": json.dumps(tool_res, indent=2)}]
+            }
+            if isinstance(tool_res, dict) and "error" in tool_res:
+                call_result["isError"] = True
             resp = {
                 "jsonrpc": "2.0",
                 "id": req_id,
-                "result": {
-                    "content": [{"type": "text", "text": json.dumps(tool_res, indent=2)}]
-                }
+                "result": call_result
             }
         else:
             resp = {
@@ -469,17 +523,22 @@ def main():
     p_test = subparsers.add_parser("test", help="Run unit tests for a policy pack against positive and negative fixtures")
     p_test.add_argument("-p", "--pack", required=True, help="Path to policy pack JSON file")
     p_test.add_argument("--benchmark", action="store_true", help="Benchmark query evaluation speed")
-    p_test.add_argument("-o", "--format", choices=["table", "json"], default="table")
+    p_test.add_argument("-o", "--format", choices=["table", "json", "sarif"], default="table")
 
     # validate
     p_val = subparsers.add_parser("validate", help="Validate policy pack schema, syntax, and framework mappings")
     p_val.add_argument("-p", "--pack", required=True, help="Path to policy pack JSON file")
-    p_val.add_argument("-o", "--format", choices=["table", "json"], default="table")
+    p_val.add_argument("-o", "--format", choices=["table", "json", "sarif"], default="table")
 
     # benchmark
     p_bm = subparsers.add_parser("benchmark", help="Benchmark query execution across iterations")
     p_bm.add_argument("-q", "--query", required=True, help="RQL query string")
     p_bm.add_argument("-i", "--iterations", type=int, default=1000, help="Number of benchmark iterations")
+
+    # export
+    p_exp = subparsers.add_parser("export", help="Export and cryptographically seal verified .csec-policy.json pack")
+    p_exp.add_argument("-p", "--pack", required=True, help="Path to policy pack JSON file")
+    p_exp.add_argument("-d", "--destination", help="Path to destination .csec-policy.json file")
 
     args = parser.parse_args()
 
@@ -514,6 +573,25 @@ def main():
 
         if args.format == "json":
             print(json.dumps(report, indent=2))
+        elif args.format == "sarif":
+            results = []
+            for outcome in report.get("results", []):
+                if not outcome.get("is_success"):
+                    for f_detail in outcome.get("failure_details", []):
+                        results.append({
+                            "ruleId": outcome.get("rule_id", "POLICY-TEST-FAILURE"),
+                            "level": "error",
+                            "message": {"text": f"Fixture test failed: {f_detail}"}
+                        })
+            sarif = {
+                "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+                "version": "2.1.0",
+                "runs": [{
+                    "tool": {"driver": {"name": "PolicySecure", "version": "0.1.0"}},
+                    "results": results
+                }]
+            }
+            print(json.dumps(sarif, indent=2))
         else:
             print("=== PolicySecure Policy Pack Test Runner ===")
             print(f"Pack:     {report['pack_name']} (v{report['pack_version']})")
@@ -552,6 +630,29 @@ def main():
 
         if args.format == "json":
             print(json.dumps(report, indent=2))
+        elif args.format == "sarif":
+            results = []
+            for err in report.get("errors", []):
+                results.append({
+                    "ruleId": "POLICY-VALIDATION-ERROR",
+                    "level": "error",
+                    "message": {"text": err}
+                })
+            for w in report.get("warnings", []):
+                results.append({
+                    "ruleId": "POLICY-VALIDATION-WARNING",
+                    "level": "warning",
+                    "message": {"text": w}
+                })
+            sarif = {
+                "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+                "version": "2.1.0",
+                "runs": [{
+                    "tool": {"driver": {"name": "PolicySecure", "version": "0.1.0"}},
+                    "results": results
+                }]
+            }
+            print(json.dumps(sarif, indent=2))
         else:
             print("=== PolicySecure Pack Validation ===")
             print(f"Pack:   {report['pack_name']}")
@@ -578,6 +679,21 @@ def main():
         avg_us = (total_time / args.iterations) * 1_000_000
         print(f"Completed {args.iterations} iterations in {total_time:.3f}s")
         print(f"Average evaluation latency: {avg_us:.2f} us ({avg_us / 1000.0:.4f} ms)")
+
+    elif args.subcommand == "export":
+        with open(args.pack, "r", encoding="utf-8") as f:
+            pack_data = json.load(f)
+        try:
+            signed, digest = export_signed_policy_pack(pack_data, args.destination)
+            print("Policy Pack Sealed Successfully.")
+            print(f"Name:       {signed['name']} (v{signed['version']})")
+            print(f"Rules:      {len(signed['rules'])}")
+            print(f"State Hash: {digest}")
+            if args.destination:
+                print(f"Saved:      {args.destination}")
+        except Exception as e:
+            print(f"[!] Export failed: {e}")
+            sys.exit(1)
 
     else:
         print("PolicySecure CLI: Use --help for available subcommands or --mcp for Model Context Protocol mode.")

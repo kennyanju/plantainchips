@@ -1,29 +1,53 @@
 #!/usr/bin/env python3
-import sys, os, json, argparse, datetime
+import sys, os, json, argparse, datetime, re, hashlib
 
 def scan_file(file_obj):
     path = file_obj.get("path", "")
-    ftype = file_obj.get("file_type", "")
+    ftype = file_obj.get("file_type", "").lower()
     content = file_obj.get("content", "")
     lines = content.splitlines()
     findings = []
 
-    # Hardcoded Secrets check
+    # 1. Hardcoded Secrets Check (Across all formats)
     for idx, line in enumerate(lines):
-        if "AKIA" in line:
+        # AWS Key
+        if re.search(r'\b(AKIA|ASIA)[0-9A-Z]{16}\b', line):
             findings.append({
                 "rule_id": "IAC_SEC_001",
                 "file_path": path,
                 "line_number": idx + 1,
                 "severity": "CRITICAL",
                 "title": "Hardcoded AWS Access Key ID",
-                "message": "Hardcoded plaintext credentials committed directly to version control.",
+                "message": "Hardcoded plaintext AWS access key committed directly to version control.",
                 "auto_fix_patch": "# Replace plaintext key with environment variable or secret manager reference"
             })
+        # GitHub PAT
+        if re.search(r'\b(ghp_[a-zA-Z0-9]{36}|github_pat_[a-zA-Z0-9_]{82})\b', line):
+            findings.append({
+                "rule_id": "IAC_SEC_002",
+                "file_path": path,
+                "line_number": idx + 1,
+                "severity": "CRITICAL",
+                "title": "Hardcoded GitHub Personal Access Token",
+                "message": "Hardcoded GitHub PAT token committed directly to repository.",
+                "auto_fix_patch": "# Replace PAT with ${{ secrets.GITHUB_TOKEN }} or repository secret"
+            })
+        # Private Key
+        if "-----BEGIN PRIVATE KEY-----" in line or "-----BEGIN RSA PRIVATE KEY-----" in line:
+            findings.append({
+                "rule_id": "IAC_SEC_003",
+                "file_path": path,
+                "line_number": idx + 1,
+                "severity": "CRITICAL",
+                "title": "Hardcoded Cryptographic Private Key Block",
+                "message": "Plaintext private key block committed directly to version control.",
+                "auto_fix_patch": "# Remove private key and mount via Kubernetes secret or KMS"
+            })
 
-    if ftype in ("terraform-hcl", "terraform"):
-        # S3 Public Read ACL
+    # 2. Terraform HCL Rules
+    if ftype in ("terraform-hcl", "terraform") or path.endswith((".tf", ".tf.json")):
         for idx, line in enumerate(lines):
+            # S3 Public Read ACL
             if "acl" in line and "public-read" in line:
                 findings.append({
                     "rule_id": "IAC_AWS_001",
@@ -34,6 +58,40 @@ def scan_file(file_obj):
                     "message": "S3 buckets should prohibit public read ACLs to prevent data leakage.",
                     "auto_fix_patch": line.replace("public-read", "private")
                 })
+            # Unencrypted RDS
+            if "storage_encrypted" in line and "false" in line:
+                findings.append({
+                    "rule_id": "IAC_AWS_004",
+                    "file_path": path,
+                    "line_number": idx + 1,
+                    "severity": "HIGH",
+                    "title": "RDS Database Storage Encryption Disabled",
+                    "message": "RDS storage_encrypted must be set to true.",
+                    "auto_fix_patch": line.replace("false", "true")
+                })
+            # Publicly Accessible RDS
+            if "publicly_accessible" in line and "true" in line:
+                findings.append({
+                    "rule_id": "IAC_AWS_005",
+                    "file_path": path,
+                    "line_number": idx + 1,
+                    "severity": "CRITICAL",
+                    "title": "RDS Database Configured As Publicly Accessible",
+                    "message": "Databases must not be accessible directly from public IP addresses.",
+                    "auto_fix_patch": line.replace("true", "false")
+                })
+            # Wildcard IAM Admin Policy
+            if '"Action": "*"' in line and '"Resource": "*"' in content:
+                findings.append({
+                    "rule_id": "IAC_AWS_008",
+                    "file_path": path,
+                    "line_number": idx + 1,
+                    "severity": "CRITICAL",
+                    "title": "IAM Policy Grants Wildcard AdministratorAccess",
+                    "message": "IAM policies must not grant Action:* and Resource:*.",
+                    "auto_fix_patch": 'Action = ["s3:GetObject"] # Scope to specific required actions'
+                })
+
         # Security Group SSH 0.0.0.0/0
         in_ingress = False
         has_22 = False
@@ -57,7 +115,8 @@ def scan_file(file_obj):
                 in_ingress = False
                 has_22 = False
 
-    elif ftype in ("kubernetes-yaml", "kubernetes"):
+    # 3. Kubernetes YAML Rules
+    elif ftype in ("kubernetes-yaml", "kubernetes") or path.endswith((".yaml", ".yml")) and "apiVersion" in content:
         for idx, line in enumerate(lines):
             if "privileged: true" in line:
                 findings.append({
@@ -69,6 +128,27 @@ def scan_file(file_obj):
                     "message": "Privileged containers can easily escape to host kernel namespace.",
                     "auto_fix_patch": line.replace("true", "false")
                 })
+            if "allowPrivilegeEscalation: true" in line:
+                findings.append({
+                    "rule_id": "IAC_K8S_003",
+                    "file_path": path,
+                    "line_number": idx + 1,
+                    "severity": "HIGH",
+                    "title": "Container Allows Privilege Escalation",
+                    "message": "Set allowPrivilegeEscalation to false to prevent setuid breakouts.",
+                    "auto_fix_patch": line.replace("true", "false")
+                })
+            if "hostNetwork: true" in line:
+                findings.append({
+                    "rule_id": "IAC_K8S_005",
+                    "file_path": path,
+                    "line_number": idx + 1,
+                    "severity": "HIGH",
+                    "title": "Pod Uses Host Network Namespace",
+                    "message": "Pod shares the host network namespace.",
+                    "auto_fix_patch": line.replace("true", "false")
+                })
+
         if "securityContext:" in content and "readOnlyRootFilesystem: true" not in content:
             findings.append({
                 "rule_id": "IAC_K8S_002",
@@ -80,7 +160,8 @@ def scan_file(file_obj):
                 "auto_fix_patch": "      readOnlyRootFilesystem: true"
             })
 
-    elif ftype in ("dockerfile", "docker"):
+    # 4. Dockerfile Rules
+    elif ftype in ("dockerfile", "docker") or "Dockerfile" in path:
         if "USER " not in content:
             findings.append({
                 "rule_id": "IAC_DOCKER_001",
@@ -92,51 +173,161 @@ def scan_file(file_obj):
                 "auto_fix_patch": "USER 10001:10001"
             })
         for idx, line in enumerate(lines):
-            if line.strip().startswith("FROM ") and (line.endswith(":latest") or ":" not in line):
+            stripped = line.strip()
+            if stripped.startswith("FROM ") and (stripped.endswith(":latest") or ":" not in stripped):
                 findings.append({
                     "rule_id": "IAC_DOCKER_002",
                     "file_path": path,
                     "line_number": idx + 1,
                     "severity": "MEDIUM",
-                    "title": "Base Image Uses Mutable ':latest' Tag",
-                    "message": "Pin base image tags or SHA digests to avoid unexpected upstream drift.",
-                    "auto_fix_patch": line.replace(":latest", ":3.18.4") + " # Pin exact immutable version"
+                    "title": "Base Image Uses Unpinned :latest Tag",
+                    "message": "Pin base images to explicit version tags or sha256 digests.",
+                    "auto_fix_patch": line.replace(":latest", "@sha256:d83d...pin")
+                })
+            if "curl " in line and "| sh" in line or "wget " in line and "| sh" in line:
+                findings.append({
+                    "rule_id": "IAC_DOCKER_003",
+                    "file_path": path,
+                    "line_number": idx + 1,
+                    "severity": "CRITICAL",
+                    "title": "Remote Script Piped Directly into Shell",
+                    "message": "Piping unverified remote scripts to shell creates arbitrary code execution vulnerabilities.",
+                    "auto_fix_patch": "# Download, verify sha256 checksum, then execute"
+                })
+            if stripped.startswith("EXPOSE ") and "22" in stripped.split():
+                findings.append({
+                    "rule_id": "IAC_DOCKER_005",
+                    "file_path": path,
+                    "line_number": idx + 1,
+                    "severity": "HIGH",
+                    "title": "Dockerfile Exposes SSH Port 22",
+                    "message": "Containers should not run SSH daemons; use kubectl exec or container tooling.",
+                    "auto_fix_patch": "# Remove EXPOSE 22 and SSH daemon installation"
                 })
 
-    elif ftype in ("github-actions-yaml", "github_actions"):
+    # 5. GitHub Actions YAML Rules
+    elif ftype in ("github-actions-yaml", "gha", "github-actions") or ".github/workflows" in path:
         for idx, line in enumerate(lines):
-            if "uses:" in line and (line.endswith("@main") or line.endswith("@master")):
+            # Unpinned action
+            if "uses:" in line and ("@master" in line or "@main" in line or "@v" not in line and "@" not in line):
                 findings.append({
                     "rule_id": "IAC_GHA_001",
                     "file_path": path,
                     "line_number": idx + 1,
                     "severity": "HIGH",
-                    "title": "GitHub Actions Step References Mutable Branch Tag",
-                    "message": "Third-party actions should be pinned to immutable commit SHA hashes.",
-                    "auto_fix_patch": line.replace("@main", "@v4.1.1") + " # Pin full commit SHA"
+                    "title": "Unpinned Third-Party GitHub Action",
+                    "message": "Pin GitHub Actions to full 40-character commit SHAs instead of mutable branch tags.",
+                    "auto_fix_patch": line.split("@")[0] + "@d63108...40charSHA"
+                })
+            # pull_request_target
+            if "pull_request_target" in line:
+                findings.append({
+                    "rule_id": "IAC_GHA_002",
+                    "file_path": path,
+                    "line_number": idx + 1,
+                    "severity": "CRITICAL",
+                    "title": "Insecure pull_request_target Trigger in Workflow",
+                    "message": "pull_request_target grants repository write tokens to untrusted fork PRs.",
+                    "auto_fix_patch": line.replace("pull_request_target", "pull_request")
+                })
+            # write-all permissions
+            if "permissions: write-all" in line:
+                findings.append({
+                    "rule_id": "IAC_GHA_003",
+                    "file_path": path,
+                    "line_number": idx + 1,
+                    "severity": "CRITICAL",
+                    "title": "Overpermissive GITHUB_TOKEN permissions: write-all",
+                    "message": "Workflows should specify least-privilege permissions instead of write-all.",
+                    "auto_fix_patch": "permissions:\n  contents: read"
                 })
 
     return findings
 
+def audit_sca_components(components):
+    findings = []
+    copyleft_licenses = {"GPL-2.0", "GPL-3.0", "AGPL-3.0", "LGPL-3.0"}
+    known_vulns = {
+        "log4j-core": "CVE-2021-44228",
+        "commons-text": "CVE-2022-42889",
+        "lodash": "CVE-2021-23337",
+        "urllib3": "CVE-2023-45803"
+    }
+
+    for comp in components:
+        c_name = comp.get("name", "")
+        c_ver = comp.get("version", "")
+        c_lic = comp.get("license")
+
+        # Copyleft License Check
+        if c_lic in copyleft_licenses:
+            findings.append({
+                "rule_id": "SCA_COPYLEFT_001",
+                "component": c_name,
+                "version": c_ver,
+                "severity": "HIGH",
+                "title": f"Copyleft License Detected ({c_lic})",
+                "description": f"Component '{c_name}' is licensed under restrictive copyleft license '{c_lic}'."
+            })
+
+        # Known Vulnerable Package Check
+        if c_name in known_vulns:
+            cve = known_vulns[c_name]
+            findings.append({
+                "rule_id": "SCA_VULN_001",
+                "component": c_name,
+                "version": c_ver,
+                "severity": "CRITICAL",
+                "title": f"Known Vulnerable Dependency: {c_name} ({cve})",
+                "description": f"Component '{c_name}' v{c_ver} is associated with {cve}."
+            })
+
+    return findings
+
 def generate_cyclonedx_sbom(components):
-    comp_json = []
-    for c in components:
-        comp_json.append({
-            "type": "library",
-            "name": c.get("name"),
-            "version": c.get("version"),
-            "purl": c.get("purl"),
-            "licenses": [{"license": {"id": c.get("license", "Apache-2.0")}}]
-        })
     return {
         "bomFormat": "CycloneDX",
         "specVersion": "1.5",
+        "serialNumber": "urn:uuid:3e671687-395b-41f5-a30f-a58921a69b79",
         "version": 1,
         "metadata": {
             "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "tools": [{"vendor": "CloudSecure", "name": "CodeSecure", "version": "0.1.0"}]
         },
-        "components": comp_json
+        "components": [
+            {
+                "type": "library",
+                "name": c.get("name"),
+                "version": c.get("version"),
+                "purl": c.get("purl", f"pkg:cargo/{c.get('name')}@{c.get('version')}"),
+                "licenses": [{"license": {"id": c.get("license", "MIT")}}] if c.get("license") else []
+            }
+            for c in components
+        ]
+    }
+
+def generate_spdx_sbom(components):
+    return {
+        "spdxVersion": "SPDX-2.3",
+        "dataLicense": "CC0-1.0",
+        "SPDXID": "SPDXRef-DOCUMENT",
+        "name": "CloudSecure-Application-SBOM",
+        "documentNamespace": "https://cloudsecure.io/spdx/doc-001",
+        "creationInfo": {
+            "creators": ["Tool: CodeSecure-0.1.0"],
+            "created": datetime.datetime.now(datetime.timezone.utc).isoformat()
+        },
+        "packages": [
+            {
+                "SPDXID": f"SPDXRef-Package-{c.get('name')}",
+                "name": c.get("name"),
+                "versionInfo": c.get("version"),
+                "downloadLocation": "NOASSERTION",
+                "filesAnalyzed": False,
+                "licenseConcluded": c.get("license", "NOASSERTION")
+            }
+            for c in components
+        ]
     }
 
 def run_mcp():
@@ -149,7 +340,11 @@ def run_mcp():
             continue
         req_id = req.get("id")
         method = req.get("method")
-        
+
+        if req_id is None:
+            # JSON-RPC / MCP notifications do not have an ID and must not receive a response
+            continue
+
         if method == "initialize":
             resp = {
                 "jsonrpc": "2.0",
@@ -167,8 +362,8 @@ def run_mcp():
                 "result": {
                     "tools": [
                         {
-                            "name": "aspm_scan_iac_directory",
-                            "description": "Scan Terraform, Kubernetes, Dockerfile, and GitHub Actions files for security flaws and hardcoded secrets",
+                            "name": "codesecure_scan_iac",
+                            "description": "Scan Terraform, Kubernetes, Dockerfile, and GitHub Actions for misconfigurations and secrets",
                             "inputSchema": {
                                 "type": "object",
                                 "properties": {"files_json": {"type": "string"}},
@@ -176,23 +371,23 @@ def run_mcp():
                             }
                         },
                         {
-                            "name": "aspm_generate_iac_autofix",
-                            "description": "Generate automated line-level fix patch for a given IaC policy rule violation",
-                            "inputSchema": {
-                                "type": "object",
-                                "properties": {
-                                    "files_json": {"type": "string"},
-                                    "rule_id": {"type": "string"}
-                                },
-                                "required": ["files_json", "rule_id"]
-                            }
-                        },
-                        {
-                            "name": "aspm_generate_sbom",
-                            "description": "Generate CycloneDX 1.5 Software Bill of Materials (SBOM) from component list",
+                            "name": "codesecure_audit_sca",
+                            "description": "Audit SBOM components for copyleft licenses and known vulnerabilities",
                             "inputSchema": {
                                 "type": "object",
                                 "properties": {"components_json": {"type": "string"}},
+                                "required": ["components_json"]
+                            }
+                        },
+                        {
+                            "name": "codesecure_export_sbom",
+                            "description": "Export CycloneDX 1.5 or SPDX 2.3 Software Bill of Materials",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "components_json": {"type": "string"},
+                                    "format": {"type": "string", "enum": ["cyclonedx", "spdx"]}
+                                },
                                 "required": ["components_json"]
                             }
                         }
@@ -203,49 +398,47 @@ def run_mcp():
             params = req.get("params", {})
             name = params.get("name")
             args = params.get("arguments", {})
-            if name == "aspm_scan_iac_directory":
+            if name == "codesecure_scan_iac":
                 raw_json = args.get("files_json", "[]")
                 try:
                     files = json.loads(raw_json)
                     all_findings = []
                     for f in files:
                         all_findings.extend(scan_file(f))
-                    tool_res = {
-                        "files_scanned": len(files),
-                        "findings_count": len(all_findings),
-                        "findings": all_findings
-                    }
+                    tool_res = {"total_findings": len(all_findings), "findings": all_findings}
                 except Exception as e:
                     tool_res = {"error": str(e)}
-            elif name == "aspm_generate_iac_autofix":
-                raw_json = args.get("files_json", "[]")
-                rid = args.get("rule_id", "")
-                try:
-                    files = json.loads(raw_json)
-                    patches = []
-                    for f in files:
-                        for fd in scan_file(f):
-                            if fd["rule_id"].lower() == rid.lower():
-                                patches.append({"file": fd["file_path"], "line": fd["line_number"], "patch": fd["auto_fix_patch"]})
-                    tool_res = {"rule_id": rid, "patches": patches}
-                except Exception as e:
-                    tool_res = {"error": str(e)}
-            elif name == "aspm_generate_sbom":
+            elif name == "codesecure_audit_sca":
                 raw_json = args.get("components_json", "[]")
                 try:
                     comps = json.loads(raw_json)
-                    tool_res = {"cyclonedx_sbom": generate_cyclonedx_sbom(comps)}
+                    sca = audit_sca_components(comps)
+                    tool_res = {"sca_findings_count": len(sca), "findings": sca}
+                except Exception as e:
+                    tool_res = {"error": str(e)}
+            elif name == "codesecure_export_sbom":
+                raw_json = args.get("components_json", "[]")
+                fmt = args.get("format", "cyclonedx")
+                try:
+                    comps = json.loads(raw_json)
+                    if fmt == "spdx":
+                        tool_res = generate_spdx_sbom(comps)
+                    else:
+                        tool_res = generate_cyclonedx_sbom(comps)
                 except Exception as e:
                     tool_res = {"error": str(e)}
             else:
                 tool_res = {"error": f"Unknown tool: {name}"}
 
+            call_result = {
+                "content": [{"type": "text", "text": json.dumps(tool_res, indent=2)}]
+            }
+            if isinstance(tool_res, dict) and "error" in tool_res:
+                call_result["isError"] = True
             resp = {
                 "jsonrpc": "2.0",
                 "id": req_id,
-                "result": {
-                    "content": [{"type": "text", "text": json.dumps(tool_res, indent=2)}]
-                }
+                "result": call_result
             }
         else:
             resp = {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": "Method not found"}}
@@ -254,20 +447,20 @@ def run_mcp():
         sys.stdout.flush()
 
 def main():
-    parser = argparse.ArgumentParser(description="CodeSecure CLI: ASPM & IaC Static Analyzer")
+    parser = argparse.ArgumentParser(description="CodeSecure CLI: ASPM, IaC Scanner and SBOM Generator")
     parser.add_argument("--mcp", action="store_true", help="Run Model Context Protocol stdio server")
     subparsers = parser.add_subparsers(dest="subcommand")
 
-    scan_p = subparsers.add_parser("scan", help="Scan IaC files for vulnerabilities")
-    scan_p.add_argument("--input", "-i", required=True, help="Path to IaC files JSON")
-    scan_p.add_argument("--format", "-f", choices=["table", "json", "sarif", "csv"], default="table")
+    scan_p = subparsers.add_parser("scan", help="Scan IaC bundle JSON for security issues")
+    scan_p.add_argument("--input", "-i", required=True, help="Path to IaC bundle JSON")
+    scan_p.add_argument("--format", "-f", choices=["table", "json", "sarif"], default="table")
 
-    fix_p = subparsers.add_parser("autofix", help="Generate auto-fix patch for an IaC rule")
-    fix_p.add_argument("--input", "-i", required=True, help="Path to IaC files JSON")
-    fix_p.add_argument("--rule", "-r", required=True, help="Rule ID (e.g. IAC_AWS_001)")
+    sca_p = subparsers.add_parser("sca", help="Audit SBOM components for licenses and vulnerabilities")
+    sca_p.add_argument("--input", "-i", required=True, help="Path to components JSON")
 
-    sbom_p = subparsers.add_parser("sbom", help="Generate CycloneDX 1.5 SBOM")
-    sbom_p.add_argument("--components", "-c", required=True, help="Path to components JSON")
+    sbom_p = subparsers.add_parser("sbom", help="Generate CycloneDX 1.5 or SPDX 2.3 SBOM")
+    sbom_p.add_argument("--input", "-i", required=True, help="Path to components JSON")
+    sbom_p.add_argument("--format", "-f", choices=["cyclonedx", "spdx"], default="cyclonedx")
 
     args = parser.parse_args()
     if args.mcp:
@@ -278,17 +471,15 @@ def main():
         with open(args.input, "r", encoding="utf-8") as f:
             files = json.load(f)
         all_findings = []
-        for f in files:
-            all_findings.extend(scan_file(f))
+        for file_obj in files:
+            all_findings.extend(scan_file(file_obj))
 
         if args.format == "table":
-            print(f"{'SEVERITY':<10} {'RULE ID':<16} {'LOCATION':<32} {'TITLE'}")
+            print(f"{'SEVERITY':<10} {'RULE ID':<16} {'LINE':<6} {'FILE PATH':<28} {'TITLE'}")
             print("-" * 105)
-            for fd in all_findings:
-                glyph = "[!]" if fd["severity"] == "CRITICAL" else "[/!\\]"
-                loc = f"{fd['file_path']}:{fd['line_number']}"
-                title = fd["title"] if len(fd["title"]) <= 42 else fd["title"][:39] + "..."
-                print(f"{glyph + ' ' + fd['severity']:<10} {fd['rule_id']:<16} {loc:<32} {title}")
+            for f in all_findings:
+                glyph = "[!]" if f["severity"] == "CRITICAL" else "[*]"
+                print(f"{glyph + ' ' + f['severity']:<10} {f['rule_id']:<16} {str(f['line_number']):<6} {f['file_path']:<28} {f['title']}")
             print("-" * 105)
             print(f"Total IaC Findings: {len(all_findings)}")
         elif args.format == "json":
@@ -300,39 +491,36 @@ def main():
                 "runs": [{
                     "tool": {"driver": {"name": "CodeSecure", "version": "0.1.0"}},
                     "results": [{
-                        "ruleId": fd["rule_id"],
-                        "level": "error" if fd["severity"] == "CRITICAL" else "warning",
-                        "message": {"text": fd["title"]}
-                    } for fd in all_findings]
+                        "ruleId": f["rule_id"],
+                        "level": "error" if f["severity"] == "CRITICAL" else "warning",
+                        "message": {"text": f["title"]},
+                        "locations": [{
+                            "physicalLocation": {
+                                "artifactLocation": {"uri": f["file_path"]},
+                                "region": {"startLine": f["line_number"]}
+                            }
+                        }]
+                    } for f in all_findings]
                 }]
             }
             print(json.dumps(sarif, indent=2))
-        elif args.format == "csv":
-            print("Severity,RuleId,FilePath,LineNumber,Title,Message")
-            for fd in all_findings:
-                print(f"{fd['severity']},{fd['rule_id']},{fd['file_path']},{fd['line_number']},\"{fd['title']}\",\"{fd['message']}\"")
-        if any(fd["severity"] == "CRITICAL" for fd in all_findings):
-            sys.exit(1)
 
-    elif args.subcommand == "autofix":
+    elif args.subcommand == "sca":
         with open(args.input, "r", encoding="utf-8") as f:
-            files = json.load(f)
-        matched = False
-        for f in files:
-            for fd in scan_file(f):
-                if fd["rule_id"].lower() == args.rule.lower():
-                    print(f"# Auto-Fix Patch for {fd['rule_id']} ({fd['file_path']}:{fd['line_number']})")
-                    print(f"{fd['auto_fix_patch']}\n")
-                    matched = True
-        if not matched:
-            print(f"No findings matching rule '{args.rule}' to auto-fix.", file=sys.stderr)
-            sys.exit(1)
+            comps = json.load(f)
+        sca_findings = audit_sca_components(comps)
+        print(f"SCA Findings ({len(sca_findings)}):")
+        for s in sca_findings:
+            print(f"  [{s['severity']}] {s['rule_id']}: {s['title']} - {s['description']}")
 
     elif args.subcommand == "sbom":
-        with open(args.components, "r", encoding="utf-8") as f:
+        with open(args.input, "r", encoding="utf-8") as f:
             comps = json.load(f)
-        sbom = generate_cyclonedx_sbom(comps)
-        print(json.dumps(sbom, indent=2))
+        if args.format == "spdx":
+            print(json.dumps(generate_spdx_sbom(comps), indent=2))
+        else:
+            print(json.dumps(generate_cyclonedx_sbom(comps), indent=2))
+
     else:
         parser.print_help()
 

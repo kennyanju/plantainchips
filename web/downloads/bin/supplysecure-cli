@@ -137,6 +137,106 @@ def evaluate_dependency(dep):
 
     return violations
 
+def evaluate_workflow(file_path, yaml_content):
+    violations = []
+    lines = yaml_content.splitlines()
+
+    # 1. SUPPLY-CI-001: Unpinned third-party actions
+    for idx, line in enumerate(lines, 1):
+        trimmed = line.strip()
+        if trimmed.startswith("uses:") or trimmed.startswith("- uses:"):
+            action_ref = trimmed.split("uses:", 1)[1].strip().strip("'\"")
+            if "@" in action_ref:
+                action_name, version = action_ref.split("@", 1)
+                if len(version) < 40 and not action_name.startswith("./"):
+                    violations.append({
+                        "id": f"CI-PIN-{os.path.basename(file_path).replace('.', '-')}-{action_name.replace('/', '-')}",
+                        "rule_id": "SUPPLY-CI-001",
+                        "severity": "HIGH",
+                        "title": f"Unpinned Third-Party GitHub Action '{action_name}'",
+                        "description": f"Workflow references mutable tag '{version}' for action '{action_name}' instead of immutable commit SHA.",
+                        "resource_id": f"{file_path}:{action_name}",
+                        "line": idx,
+                        "evidence_detail": f"Unpinned reference: uses: {action_name}@{version}",
+                        "remediation_action": f"Pin action to full 40-character commit SHA (e.g. {action_name}@<commit-sha> # {version})"
+                    })
+
+    # 2. SUPPLY-CI-002: pull_request_target untrusted checkout (PwnRequest)
+    has_pr_target = "pull_request_target" in yaml_content
+    has_untrusted_checkout = ("github.event.pull_request.head.sha" in yaml_content
+                              or "github.event.pull_request.head.ref" in yaml_content)
+    if has_pr_target and has_untrusted_checkout:
+        violations.append({
+            "id": f"CI-PWNREQ-{os.path.basename(file_path).replace('.', '-')}",
+            "rule_id": "SUPPLY-CI-002",
+            "severity": "CRITICAL",
+            "title": "Untrusted Code Checkout in pull_request_target Context (PwnRequest)",
+            "description": "Workflow triggered on pull_request_target checks out untrusted fork code with repository secrets access.",
+            "resource_id": file_path,
+            "evidence_detail": "pull_request_target trigger combined with head.sha/ref checkout",
+            "remediation_action": "Do not check out untrusted pull request code in pull_request_target workflows. Use pull_request trigger instead."
+        })
+
+    # 3. SUPPLY-CI-003: Script injection via context expressions
+    injection_patterns = [
+        "github.event.issue.title",
+        "github.event.pull_request.body",
+        "github.head_ref",
+        "github.event.comment.body",
+    ]
+    for idx, line in enumerate(lines, 1):
+        trimmed = line.strip()
+        if trimmed.startswith("run:") or trimmed.startswith("- run:"):
+            for pat in injection_patterns:
+                if f"${{{{ {pat} }}}}" in line or pat in line:
+                    violations.append({
+                        "id": f"CI-INJ-{os.path.basename(file_path).replace('.', '-')}-{pat.replace('.', '-')}",
+                        "rule_id": "SUPPLY-CI-003",
+                        "severity": "CRITICAL",
+                        "title": f"Direct Script Injection via Context Expression '{pat}'",
+                        "description": f"Untrusted GitHub context expression '{pat}' is formatted directly into a shell execution string.",
+                        "resource_id": f"{file_path}:{pat}",
+                        "line": idx,
+                        "evidence_detail": f"Line contains dangerous inline evaluation: {trimmed}",
+                        "remediation_action": f"Pass '{pat}' through intermediate environment variables instead of inline evaluation."
+                    })
+                    break
+
+    # 4. SUPPLY-CI-004: Overpermissive GITHUB_TOKEN permissions
+    if "permissions: write-all" in yaml_content:
+        violations.append({
+            "id": f"CI-PERM-ALL-{os.path.basename(file_path).replace('.', '-')}",
+            "rule_id": "SUPPLY-CI-004",
+            "severity": "HIGH",
+            "title": "Overpermissive write-all Permissions Granted to GITHUB_TOKEN",
+            "description": "Workflow grants global write-all permissions to default GITHUB_TOKEN.",
+            "resource_id": file_path,
+            "evidence_detail": "permissions: write-all found in workflow header",
+            "remediation_action": "Specify minimal explicit permissions per job: permissions: contents: read"
+        })
+
+    return violations
+
+def generate_pinned_workflow_patch(yaml_content):
+    known_pins = {
+        "actions/checkout@v2": "actions/checkout@ee0669bd1cc54295c223e0bb666b733df41de133 # v2.7.0",
+        "actions/checkout@v3": "actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3.6.0",
+        "actions/checkout@v4": "actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1",
+        "actions/setup-python@v4": "actions/setup-python@65d7f2d534ac1bc67fcd62888c5f4f3d2cb2b236 # v4.7.1",
+        "actions/setup-node@v3": "actions/setup-node@64ed1c7eab4cce3362f8c340dee64e5eaeef8f7c # v3.8.2",
+    }
+    patched_lines = []
+    for line in yaml_content.splitlines():
+        replaced = False
+        for mutable_tag, pin in known_pins.items():
+            if mutable_tag in line:
+                patched_lines.append(line.replace(mutable_tag, pin))
+                replaced = True
+                break
+        if not replaced:
+            patched_lines.append(line)
+    return "\n".join(patched_lines)
+
 def synthesize_admission_policy():
     return (
         "apiVersion: kyverno.io/v1\n"
@@ -193,6 +293,10 @@ def run_mcp():
         req_id = req.get("id")
         method = req.get("method")
 
+        if req_id is None:
+            # JSON-RPC / MCP notifications do not have an ID and must not receive a response
+            continue
+
         if method == "initialize":
             resp = {
                 "jsonrpc": "2.0",
@@ -242,6 +346,18 @@ def run_mcp():
                             "inputSchema": {
                                 "type": "object",
                                 "properties": {}
+                            }
+                        },
+                        {
+                            "name": "sscs_scan_workflow",
+                            "description": "Scan CI/CD workflow YAML for unpinned actions, script injection, and overpermissive tokens",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "file_path": {"type": "string"},
+                                    "yaml_content": {"type": "string"}
+                                },
+                                "required": ["yaml_content"]
                             }
                         }
                     ]
@@ -301,15 +417,29 @@ def run_mcp():
                 tool_res = {
                     "kyverno_cluster_policy_yaml": synthesize_admission_policy()
                 }
+
+            elif name == "sscs_scan_workflow":
+                file_path = args.get("file_path", "workflow.yml")
+                yaml_content = args.get("yaml_content", "")
+                violations = evaluate_workflow(file_path, yaml_content)
+                tool_res = {
+                    "workflow": file_path,
+                    "findings_count": len(violations),
+                    "findings": violations,
+                    "pinned_patch": generate_pinned_workflow_patch(yaml_content)
+                }
             else:
                 tool_res = {"error": f"Unknown tool: {name}"}
 
+            call_result = {
+                "content": [{"type": "text", "text": json.dumps(tool_res, indent=2)}]
+            }
+            if isinstance(tool_res, dict) and "error" in tool_res:
+                call_result["isError"] = True
             resp = {
                 "jsonrpc": "2.0",
                 "id": req_id,
-                "result": {
-                    "content": [{"type": "text", "text": json.dumps(tool_res, indent=2)}]
-                }
+                "result": call_result
             }
         else:
             resp = {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": "Method not found"}}
@@ -333,6 +463,11 @@ def main():
     dep_p = subparsers.add_parser("scan-dependencies", help="Scan dependencies for confusion and typos")
     dep_p.add_argument("--manifest", "-m", required=True, help="Path to dependency manifest JSON")
     dep_p.add_argument("--format", "-o", choices=["table", "json", "sarif", "csv"], default="table")
+
+    wf_p = subparsers.add_parser("scan-workflow", help="Scan CI/CD workflow YAML for unpinned actions and script injection")
+    wf_p.add_argument("--file", "-f", required=True, help="Path to workflow YAML file")
+    wf_p.add_argument("--format", "-o", choices=["table", "json", "sarif", "csv"], default="table")
+    wf_p.add_argument("--patch", action="store_true", help="Output auto-pinned workflow patch")
 
     subparsers.add_parser("synthesize-admission", help="Synthesize Kyverno admission controller policy")
 
@@ -465,6 +600,46 @@ def main():
         yaml = synthesize_admission_policy()
         print("=== Kubernetes Kyverno ClusterPolicy (YAML) ===")
         print(yaml)
+
+    elif args.subcommand == "scan-workflow":
+        with open(args.file, "r", encoding="utf-8") as f:
+            content = f.read()
+        violations = evaluate_workflow(args.file, content)
+        if args.patch:
+            print(generate_pinned_workflow_patch(content))
+            return
+
+        if args.format == "table":
+            print(f"{'SEVERITY':<10} {'RULE ID':<16} {'RESOURCE':<32} {'TITLE'}")
+            print("-" * 105)
+            for v in violations:
+                glyph = "[!]" if v["severity"] == "CRITICAL" else "[/!\\]"
+                title = v["title"] if len(v["title"]) <= 42 else v["title"][:39] + "..."
+                print(f"{glyph + ' ' + v['severity']:<10} {v['rule_id']:<16} {v['resource_id']:<32} {title}")
+            print("-" * 105)
+            print(f"Total CI/CD Workflow Findings: {len(violations)}")
+        elif args.format == "json":
+            print(json.dumps(violations, indent=2))
+        elif args.format == "sarif":
+            sarif = {
+                "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+                "version": "2.1.0",
+                "runs": [{
+                    "tool": {"driver": {"name": "SupplySecure", "version": "0.1.0"}},
+                    "results": [{
+                        "ruleId": v["rule_id"],
+                        "level": "error" if v["severity"] == "CRITICAL" else "warning",
+                        "message": {"text": v["title"]}
+                    } for v in violations]
+                }]
+            }
+            print(json.dumps(sarif, indent=2))
+        elif args.format == "csv":
+            print("Severity,RuleId,Resource,Title,Message")
+            for v in violations:
+                print(f"{v['severity']},{v['rule_id']},{v['resource_id']},\"{v['title']}\",\"{v['description']}\"")
+        if any(v["severity"] == "CRITICAL" for v in violations):
+            sys.exit(1)
     else:
         parser.print_help()
 

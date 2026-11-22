@@ -152,6 +152,105 @@ def synthesize_microsegmentation(flows, sgs):
 
     return k8s_yaml, remediation_cmds
 
+def ip_to_int(ip_str):
+    octets = [int(o) for o in ip_str.strip().split(".")]
+    if len(octets) != 4:
+        raise ValueError(f"Invalid IPv4 address: {ip_str}")
+    return (octets[0] << 24) | (octets[1] << 16) | (octets[2] << 8) | octets[3]
+
+def parse_cidr(cidr_str):
+    if "/" not in cidr_str:
+        cidr_str = f"{cidr_str}/32"
+    ip_part, prefix_str = cidr_str.split("/", 1)
+    prefix = int(prefix_str)
+    if prefix < 0 or prefix > 32:
+        raise ValueError(f"Invalid prefix length: {prefix}")
+    mask = 0 if prefix == 0 else ((0xFFFFFFFF << (32 - prefix)) & 0xFFFFFFFF)
+    network = ip_to_int(ip_part) & mask
+    return network, mask
+
+def cidr_contains_ip(cidr_str, ip_str):
+    if cidr_str in ("0.0.0.0/0", "::/0"):
+        return True
+    try:
+        net, mask = parse_cidr(cidr_str)
+        ip_val = ip_to_int(ip_str)
+        return (ip_val & mask) == net
+    except Exception:
+        return False
+
+def check_reachability(security_groups, src_ip, dst_port, protocol="tcp"):
+    matching_rules = []
+    for sg in security_groups:
+        for r in sg.get("rules", []):
+            if r.get("direction") == "ingress":
+                rule_proto = (r.get("ip_protocol") or "tcp").lower()
+                if rule_proto not in ("-1", "all", protocol.lower()):
+                    continue
+                from_p = r.get("from_port", 0) or 0
+                to_p = r.get("to_port", 65535) or 65535
+                if not (from_p <= dst_port <= to_p):
+                    continue
+                cidr = r.get("cidr_ipv4", "")
+                if cidr and cidr_contains_ip(cidr, src_ip):
+                    matching_rules.append({
+                        "group_id": sg.get("group_id"),
+                        "rule_id": r.get("rule_id"),
+                        "cidr": cidr,
+                        "ports": f"{from_p}-{to_p}"
+                    })
+    return len(matching_rules) > 0, matching_rules
+
+def compute_traffic_matrix(flows, security_groups=None):
+    grouped = {}
+    for f in flows:
+        key = (f["src_addr"], f["dst_addr"], f["dst_port"], f.get("protocol", 6))
+        if key not in grouped:
+            grouped[key] = {
+                "src_addr": f["src_addr"],
+                "dst_addr": f["dst_addr"],
+                "dst_port": f["dst_port"],
+                "protocol": "TCP" if f.get("protocol") == 6 else "UDP" if f.get("protocol") == 17 else str(f.get("protocol")),
+                "packets_total": 0,
+                "bytes_total": 0,
+                "actions": set(),
+                "interfaces": set(),
+            }
+        grouped[key]["packets_total"] += f.get("packets", 0)
+        grouped[key]["bytes_total"] += f.get("bytes", 0)
+        grouped[key]["actions"].add(f.get("action", ""))
+        grouped[key]["interfaces"].add(f.get("interface_id", ""))
+
+    matrix = []
+    for key, data in grouped.items():
+        is_allowed = "ACCEPT" in data["actions"]
+        permitted_by_sg = False
+        matching_rules = []
+        if security_groups:
+            permitted_by_sg, matching_rules = check_reachability(
+                security_groups, data["src_addr"], data["dst_port"], data["protocol"].lower()
+            )
+
+        is_cleartext = data["dst_port"] in (80, 21, 23, 389, 513, 514)
+        is_exfil = not is_private_ip(data["dst_addr"]) and data["bytes_total"] > 50_000_000
+
+        status = "VIOLATION" if (is_cleartext or is_exfil) else ("PERMITTED" if is_allowed else "DENIED")
+
+        matrix.append({
+            "source": data["src_addr"],
+            "destination": data["dst_addr"],
+            "port": data["dst_port"],
+            "protocol": data["protocol"],
+            "packets": data["packets_total"],
+            "bytes": data["bytes_total"],
+            "status": status,
+            "permitted_by_sg": permitted_by_sg,
+            "matching_rules": matching_rules,
+            "interfaces": sorted(list(data["interfaces"]))
+        })
+    matrix.sort(key=lambda x: (x["source"], x["destination"], x["port"]))
+    return matrix
+
 def run_mcp():
     for line in sys.stdin:
         if not line.strip():
@@ -162,6 +261,10 @@ def run_mcp():
             continue
         req_id = req.get("id")
         method = req.get("method")
+
+        if req_id is None:
+            # JSON-RPC / MCP notifications do not have an ID and must not receive a response
+            continue
 
         if method == "initialize":
             resp = {
@@ -207,6 +310,32 @@ def run_mcp():
                                     "security_groups_json": {"type": "string"}
                                 },
                                 "required": ["flows_json", "security_groups_json"]
+                            }
+                        },
+                        {
+                            "name": "cns_test_reachability",
+                            "description": "Test bitwise CIDR and port reachability through security group rules",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "security_groups_json": {"type": "string"},
+                                    "source_ip": {"type": "string"},
+                                    "dest_port": {"type": "integer"},
+                                    "protocol": {"type": "string", "default": "tcp"}
+                                },
+                                "required": ["security_groups_json", "source_ip", "dest_port"]
+                            }
+                        },
+                        {
+                            "name": "cns_traffic_matrix",
+                            "description": "Compute East-West service traffic matrix comparing observed flows with security group policy",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "flows_json": {"type": "string"},
+                                    "security_groups_json": {"type": "string"}
+                                },
+                                "required": ["flows_json"]
                             }
                         }
                     ]
@@ -260,15 +389,50 @@ def run_mcp():
                     }
                 except Exception as e:
                     tool_res = {"error": str(e)}
+
+            elif name == "cns_test_reachability":
+                sgs_raw = args.get("security_groups_json", "[]")
+                src_ip = args.get("source_ip", "")
+                dst_port = args.get("dest_port", 0)
+                protocol = args.get("protocol", "tcp")
+                try:
+                    sgs = json.loads(sgs_raw)
+                    permitted, rules = check_reachability(sgs, src_ip, dst_port, protocol)
+                    tool_res = {
+                        "source_ip": src_ip,
+                        "dest_port": dst_port,
+                        "protocol": protocol,
+                        "permitted": permitted,
+                        "matching_rules": rules
+                    }
+                except Exception as e:
+                    tool_res = {"error": str(e)}
+
+            elif name == "cns_traffic_matrix":
+                flows_raw = args.get("flows_json", "[]")
+                sgs_raw = args.get("security_groups_json")
+                try:
+                    flows = json.loads(flows_raw)
+                    sgs = json.loads(sgs_raw) if sgs_raw else None
+                    matrix = compute_traffic_matrix(flows, sgs)
+                    tool_res = {
+                        "matrix_entries": len(matrix),
+                        "traffic_matrix": matrix
+                    }
+                except Exception as e:
+                    tool_res = {"error": str(e)}
             else:
                 tool_res = {"error": f"Unknown tool: {name}"}
 
+            call_result = {
+                "content": [{"type": "text", "text": json.dumps(tool_res, indent=2)}]
+            }
+            if isinstance(tool_res, dict) and "error" in tool_res:
+                call_result["isError"] = True
             resp = {
                 "jsonrpc": "2.0",
                 "id": req_id,
-                "result": {
-                    "content": [{"type": "text", "text": json.dumps(tool_res, indent=2)}]
-                }
+                "result": call_result
             }
         else:
             resp = {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": "Method not found"}}
@@ -292,6 +456,17 @@ def main():
     syn_p = subparsers.add_parser("synthesize-policy", help="Synthesize zero-trust microsegmentation policy")
     syn_p.add_argument("--flows", "-f", required=True, help="Path to VPC flow logs JSON")
     syn_p.add_argument("--security-groups", "-s", required=True, help="Path to Security Groups JSON")
+
+    reach_p = subparsers.add_parser("test-reachability", help="Test symbolic reachability via security group rules")
+    reach_p.add_argument("--security-groups", "-s", required=True, help="Path to Security Groups JSON")
+    reach_p.add_argument("--src-ip", "-i", required=True, help="Source IPv4 address")
+    reach_p.add_argument("--dst-port", "-p", type=int, required=True, help="Destination port number")
+    reach_p.add_argument("--protocol", default="tcp", help="Protocol (tcp/udp/all)")
+
+    matrix_p = subparsers.add_parser("traffic-matrix", help="Compute East-West service traffic matrix")
+    matrix_p.add_argument("--flows", "-f", required=True, help="Path to VPC flow logs JSON")
+    matrix_p.add_argument("--security-groups", "-s", help="Optional path to Security Groups JSON")
+    matrix_p.add_argument("--format", "-o", choices=["table", "json", "csv"], default="table")
 
     args = parser.parse_args()
     if args.mcp:
@@ -390,6 +565,43 @@ def main():
         print("=== AWS Security Group Remediation Commands ===")
         for cmd in cmds:
             print(cmd)
+
+    elif args.subcommand == "test-reachability":
+        with open(args.security_groups, "r", encoding="utf-8") as f:
+            sgs = json.load(f)
+        permitted, rules = check_reachability(sgs, args.src_ip, args.dst_port, args.protocol)
+        if permitted:
+            print(f"Status: PERMITTED")
+            print(f"Traffic from {args.src_ip} to port {args.dst_port}/{args.protocol.upper()} is ALLOWED by {len(rules)} rule(s):")
+            for r in rules:
+                print(f"  - SecurityGroup: {r['group_id']} | Rule: {r['rule_id']} | CIDR: {r['cidr']} | Ports: {r['ports']}")
+        else:
+            print(f"Status: BLOCKED")
+            print(f"Traffic from {args.src_ip} to port {args.dst_port}/{args.protocol.upper()} is BLOCKED by all Security Groups.")
+
+    elif args.subcommand == "traffic-matrix":
+        with open(args.flows, "r", encoding="utf-8") as f:
+            flows = json.load(f)
+        sgs = None
+        if args.security_groups:
+            with open(args.security_groups, "r", encoding="utf-8") as f:
+                sgs = json.load(f)
+        matrix = compute_traffic_matrix(flows, sgs)
+
+        if args.format == "table":
+            print(f"{'STATUS':<12} {'SOURCE':<16} {'DESTINATION':<16} {'PORT':<8} {'PROTO':<6} {'SG PERMITTED':<14} {'BYTES'}")
+            print("-" * 88)
+            for m in matrix:
+                sg_perm = "YES" if m["permitted_by_sg"] else "NO"
+                print(f"{m['status']:<12} {m['source']:<16} {m['destination']:<16} {m['port']:<8} {m['protocol']:<6} {sg_perm:<14} {m['bytes']}")
+            print("-" * 88)
+            print(f"Total Unique Service Flows: {len(matrix)}")
+        elif args.format == "json":
+            print(json.dumps(matrix, indent=2))
+        elif args.format == "csv":
+            print("Status,Source,Destination,Port,Protocol,SgPermitted,Bytes,Packets")
+            for m in matrix:
+                print(f"{m['status']},{m['source']},{m['destination']},{m['port']},{m['protocol']},{m['permitted_by_sg']},{m['bytes']},{m['packets']}")
 
     else:
         parser.print_help()

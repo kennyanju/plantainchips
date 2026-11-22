@@ -184,7 +184,7 @@ impl PolicySecureEngine {
                 };
 
                 let mut filter_nodes = Vec::new();
-                for (idx, pred) in parsed.predicates.iter().enumerate() {
+                for (idx, pred) in parsed.predicates().iter().enumerate() {
                     let (expr_str, cost) = match pred {
                         Predicate::CloudType(t) => (format!("cloud.type == '{}'", t), 0.05),
                         Predicate::ApiName(a) => (format!("api.name == '{}'", a), 0.04),

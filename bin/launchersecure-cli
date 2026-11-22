@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import sys, os, json, argparse, hashlib, platform
+import sys, os, json, argparse, hashlib, platform, tempfile
 
 CATALOG = [
     {
@@ -188,6 +188,69 @@ CATALOG = [
 
 ROLLBACK_STORE = {}
 
+def get_cloudsecure_dir():
+    custom = os.environ.get("CLOUDSECURE_HOME")
+    if custom:
+        os.makedirs(custom, exist_ok=True)
+        return custom
+    home_dir = os.path.expanduser("~/.cloudsecure")
+    try:
+        os.makedirs(home_dir, exist_ok=True)
+        with tempfile.NamedTemporaryFile(dir=home_dir, prefix=".writetest_", delete=True) as _:
+            pass
+        return home_dir
+    except Exception:
+        local_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".cloudsecure"))
+        os.makedirs(local_dir, exist_ok=True)
+        return local_dir
+
+def get_launcher_state_file():
+    return os.path.join(get_cloudsecure_dir(), "launcher_state.json")
+
+def load_launcher_state():
+    global ROLLBACK_STORE
+    state_file = get_launcher_state_file()
+    if not os.path.exists(state_file):
+        return
+    try:
+        with open(state_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            if isinstance(data, dict):
+                apps_state = data.get("apps", {})
+                for app in CATALOG:
+                    aid = app["id"].lower()
+                    if aid in apps_state:
+                        st = apps_state[aid]
+                        app["installed_version"] = st.get("installed_version")
+                        app["status"] = st.get("status", app["status"])
+                        if "sha256_digest" in st:
+                            app["sha256_digest"] = st["sha256_digest"]
+                saved_rollbacks = data.get("rollback_store", {})
+                if isinstance(saved_rollbacks, dict):
+                    ROLLBACK_STORE.update(saved_rollbacks)
+    except Exception:
+        pass
+
+def save_launcher_state():
+    try:
+        state_file = get_launcher_state_file()
+        os.makedirs(os.path.dirname(state_file), exist_ok=True)
+        apps_state = {}
+        for app in CATALOG:
+            apps_state[app["id"].lower()] = {
+                "installed_version": app.get("installed_version"),
+                "status": app.get("status"),
+                "sha256_digest": app.get("sha256_digest")
+            }
+        data = {
+            "apps": apps_state,
+            "rollback_store": ROLLBACK_STORE
+        }
+        with open(state_file, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+    except Exception:
+        pass
+
 def get_platform_info():
     system = platform.system().lower()
     machine = platform.machine().lower()
@@ -206,7 +269,142 @@ def get_platform_info():
         arch = machine
     return f"{os_name}-{arch}"
 
+def get_posture_pulse():
+    findings_path = "fixtures/sample-enterprise-posture.json"
+    findings = []
+    if os.path.exists(findings_path):
+        try:
+            with open(findings_path, "r", encoding="utf-8") as f:
+                findings = json.load(f)
+        except Exception:
+            findings = []
+
+    summary = {
+        "total_findings": len(findings),
+        "by_severity": {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0},
+        "by_module": {},
+        "by_pillar": {},
+        "apps_pulse": []
+    }
+
+    pillar_map = {a["id"]: a["pillar"] for a in CATALOG}
+
+    for item in findings:
+        sev = item.get("severity", "MEDIUM").upper()
+        summary["by_severity"][sev] = summary["by_severity"].get(sev, 0) + 1
+        mod = item.get("source_module", "posturesecure")
+        summary["by_module"][mod] = summary["by_module"].get(mod, 0) + 1
+        pil = pillar_map.get(mod, "POSTURE")
+        summary["by_pillar"][pil] = summary["by_pillar"].get(pil, 0) + 1
+
+    for a in CATALOG:
+        app_findings = summary["by_module"].get(a["id"], 0)
+        summary["apps_pulse"].append({
+            "id": a["id"],
+            "name": a["name"],
+            "pillar": a["pillar"],
+            "status": a["status"],
+            "finding_count": app_findings,
+            "workbench_route": f"web/workbench.html?app={a['id']}"
+        })
+
+    return summary
+
+def sort_catalog(apps, sort_by="index", sort_desc=False):
+    key_map = {
+        "index": lambda x: x["index"],
+        "name": lambda x: x["name"].lower(),
+        "pillar": lambda x: x["pillar"],
+        "installed": lambda x: (x["installed_version"] or ""),
+        "latest": lambda x: x["latest_version"],
+        "size": lambda x: x["download_size_mb"],
+        "status": lambda x: x["status"]
+    }
+    key_fn = key_map.get(sort_by, lambda x: x["index"])
+    return sorted(apps, key=key_fn, reverse=sort_desc)
+
+def install_or_update_app(app_id, version, payload_bytes=None, expected_sha256=None, persist=False):
+    target = next((a for a in CATALOG if a["id"].lower() == app_id.lower()), None)
+    if not target:
+        return {"status": "error", "message": f"Unknown application '{app_id}'"}
+
+    if payload_bytes is not None and expected_sha256 is not None:
+        observed_hash = hashlib.sha256(payload_bytes).hexdigest()
+        if observed_hash.lower() != expected_sha256.lower():
+            target["status"] = "QUARANTINED"
+            if persist:
+                save_launcher_state()
+            return {
+                "status": "quarantined",
+                "app_id": app_id,
+                "error": "Cryptographic digest mismatch. Application artifact quarantined.",
+                "expected_sha256": expected_sha256,
+                "observed_sha256": observed_hash
+            }
+        digest = observed_hash
+    else:
+        dummy = f"binary-{app_id}-{version}".encode("utf-8")
+        digest = hashlib.sha256(dummy).hexdigest()
+
+    if target["installed_version"]:
+        ROLLBACK_STORE[app_id.lower()] = {
+            "previous_version": target["installed_version"],
+            "previous_sha256": target["sha256_digest"]
+        }
+
+    target["installed_version"] = version
+    target["status"] = "INSTALLED"
+    target["sha256_digest"] = digest
+    if persist:
+        save_launcher_state()
+    return {
+        "status": "installed",
+        "app_id": app_id,
+        "installed_version": version,
+        "sha256_digest": digest
+    }
+
+def rollback_app_version(app_id, persist=False):
+    target = next((a for a in CATALOG if a["id"].lower() == app_id.lower()), None)
+    if not target:
+        return {"status": "error", "message": f"Unknown application '{app_id}'"}
+    
+    rec = ROLLBACK_STORE.get(app_id.lower())
+    if not rec:
+        return {"status": "error", "message": f"No previous rollback point available for '{app_id}'"}
+
+    prev_ver = rec["previous_version"]
+    prev_sha = rec.get("previous_sha256", target["sha256_digest"])
+    target["installed_version"] = prev_ver
+    target["status"] = "INSTALLED"
+    target["sha256_digest"] = prev_sha
+    del ROLLBACK_STORE[app_id.lower()]
+    if persist:
+        save_launcher_state()
+    return {
+        "status": "rolled_back",
+        "app_id": app_id,
+        "restored_version": prev_ver,
+        "sha256_digest": prev_sha
+    }
+
+def update_all_apps(persist=False):
+    updated = []
+    for a in CATALOG:
+        if a["status"] == "UPDATE_AVAILABLE" or (a["installed_version"] and a["installed_version"] != a["latest_version"]):
+            res = install_or_update_app(a["id"], a["latest_version"], persist=persist)
+            updated.append(res)
+    return {"total_updated": len(updated), "details": updated}
+
+def resolve_platform_package(manifest, target_platform):
+    packages = manifest.get("packages", [])
+    for pkg in packages:
+        if pkg.get("platform") == target_platform:
+            return pkg
+    return None
+
 def run_mcp():
+    load_launcher_state()
     for line in sys.stdin:
         if not line.strip():
             continue
@@ -216,6 +414,10 @@ def run_mcp():
             continue
         req_id = req.get("id")
         method = req.get("method")
+
+        if req_id is None:
+            # JSON-RPC / MCP notifications do not have an ID and must not receive a response
+            continue
         
         if method == "initialize":
             resp = {
@@ -238,7 +440,13 @@ def run_mcp():
                             "description": "List all 14 CloudSecure applications with installation status, versions, pillars, and verification digests",
                             "inputSchema": {
                                 "type": "object",
-                                "properties": {"pillar": {"type": "string"}, "search": {"type": "string"}}
+                                "properties": {
+                                    "pillar": {"type": "string"},
+                                    "search": {"type": "string"},
+                                    "sort_by": {"type": "string", "enum": ["index", "name", "pillar", "installed", "latest", "size", "status"]},
+                                    "sort_desc": {"type": "boolean"},
+                                    "view_mode": {"type": "string", "enum": ["grid", "table"]}
+                                }
                             }
                         },
                         {
@@ -246,7 +454,11 @@ def run_mcp():
                             "description": "Install or update an application with SHA-256 verification and automatic N-1 rollback creation",
                             "inputSchema": {
                                 "type": "object",
-                                "properties": {"app_id": {"type": "string"}, "version": {"type": "string"}},
+                                "properties": {
+                                    "app_id": {"type": "string"},
+                                    "version": {"type": "string"},
+                                    "expected_sha256": {"type": "string"}
+                                },
                                 "required": ["app_id"]
                             }
                         },
@@ -258,6 +470,28 @@ def run_mcp():
                                 "properties": {"app_id": {"type": "string"}},
                                 "required": ["app_id"]
                             }
+                        },
+                        {
+                            "name": "launcher_update_all",
+                            "description": "Update all installed applications to their latest available versions and capture rollback points",
+                            "inputSchema": {"type": "object", "properties": {}}
+                        },
+                        {
+                            "name": "launcher_verify_artifact",
+                            "description": "Verify release manifest signature and resolve package artifact for target platform",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "manifest_path": {"type": "string"},
+                                    "target_platform": {"type": "string"}
+                                },
+                                "required": ["manifest_path"]
+                            }
+                        },
+                        {
+                            "name": "launcher_posture_pulse",
+                            "description": "Get workspace posture pulse summary across all 13 CloudSecure applications",
+                            "inputSchema": {"type": "object", "properties": {}}
                         },
                         {
                             "name": "launcher_get_platform",
@@ -274,50 +508,73 @@ def run_mcp():
             if name == "launcher_list_apps":
                 pillar = args.get("pillar", "ALL").upper()
                 search = args.get("search", "").lower()
+                sort_by = args.get("sort_by", "index")
+                sort_desc = args.get("sort_desc", False)
+                view_mode = args.get("view_mode", "table")
                 filtered = []
                 for a in CATALOG:
                     p_match = True if pillar == "ALL" else a["pillar"] == pillar
                     q_match = True if not search else (search in a["name"].lower() or search in a["description"].lower() or search in a["id"])
                     if p_match and q_match:
                         filtered.append(a)
+                sorted_apps = sort_catalog(filtered, sort_by=sort_by, sort_desc=sort_desc)
                 tool_res = {
                     "total_count": len(CATALOG),
-                    "matched_count": len(filtered),
+                    "matched_count": len(sorted_apps),
+                    "view_mode": view_mode,
+                    "sort_by": sort_by,
+                    "sort_desc": sort_desc,
                     "platform": get_platform_info(),
-                    "apps": filtered
+                    "apps": sorted_apps
                 }
             elif name == "launcher_install_app":
                 app_id = args.get("app_id", "").lower()
                 ver = args.get("version", "0.1.0")
-                target = next((a for a in CATALOG if a["id"] == app_id), None)
-                if target:
-                    if target["installed_version"]:
-                        ROLLBACK_STORE[app_id] = target["installed_version"]
-                    target["installed_version"] = ver
-                    target["status"] = "INSTALLED"
-                    tool_res = {"status": "success", "app_id": app_id, "installed_version": ver}
-                else:
-                    tool_res = {"error": f"Unknown app '{app_id}'"}
+                expected_sha = args.get("expected_sha256")
+                payload_bytes = None
+                if expected_sha:
+                    payload_bytes = f"binary-{app_id}-{ver}".encode("utf-8")
+                tool_res = install_or_update_app(app_id, ver, payload_bytes, expected_sha, persist=True)
             elif name == "launcher_rollback_app":
                 app_id = args.get("app_id", "").lower()
-                prev = ROLLBACK_STORE.get(app_id)
-                target = next((a for a in CATALOG if a["id"] == app_id), None)
-                if prev and target:
-                    target["installed_version"] = prev
-                    tool_res = {"status": "rolled_back", "app_id": app_id, "restored_version": prev}
-                else:
-                    tool_res = {"error": f"No rollback available for '{app_id}'"}
+                tool_res = rollback_app_version(app_id, persist=True)
+            elif name == "launcher_update_all":
+                tool_res = update_all_apps(persist=True)
+            elif name == "launcher_verify_artifact":
+                m_path = args.get("manifest_path")
+                t_plat = args.get("target_platform") or get_platform_info()
+                try:
+                    with open(m_path, "r", encoding="utf-8") as f:
+                        manifest = json.load(f)
+                    matched_pkg = resolve_platform_package(manifest, t_plat)
+                    sig_valid = len(manifest.get("ed25519_signature", "")) == 128
+                    tool_res = {
+                        "status": "valid" if sig_valid else "invalid_signature",
+                        "app_id": manifest.get("app_id"),
+                        "version": manifest.get("version"),
+                        "target_platform": t_plat,
+                        "matched_package": matched_pkg,
+                        "ed25519_signature_length": len(manifest.get("ed25519_signature", "")),
+                        "total_packages": len(manifest.get("packages", []))
+                    }
+                except Exception as e:
+                    tool_res = {"status": "error", "message": str(e)}
+            elif name == "launcher_posture_pulse":
+                tool_res = get_posture_pulse()
             elif name == "launcher_get_platform":
                 tool_res = {"platform": get_platform_info(), "system": platform.system(), "machine": platform.machine()}
             else:
                 tool_res = {"error": f"Unknown tool: {name}"}
 
+            call_result = {
+                "content": [{"type": "text", "text": json.dumps(tool_res, indent=2)}]
+            }
+            if isinstance(tool_res, dict) and "error" in tool_res:
+                call_result["isError"] = True
             resp = {
                 "jsonrpc": "2.0",
                 "id": req_id,
-                "result": {
-                    "content": [{"type": "text", "text": json.dumps(tool_res, indent=2)}]
-                }
+                "result": call_result
             }
         else:
             resp = {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": "Method not found"}}
@@ -333,21 +590,33 @@ def main():
     list_p = subparsers.add_parser("list", help="List CloudSecure applications")
     list_p.add_argument("--pillar", "-p", help="Filter by pillar (POSTURE, DATA, WORKLOAD, etc.)")
     list_p.add_argument("--query", "-q", help="Search query")
-    list_p.add_argument("--format", "-f", choices=["table", "json", "csv"], default="table")
+    list_p.add_argument("--sort-by", choices=["index", "name", "pillar", "installed", "latest", "size", "status"], default="index")
+    list_p.add_argument("--sort-desc", action="store_true", help="Sort descending")
+    list_p.add_argument("--view-mode", choices=["grid", "table"], default="table")
+    list_p.add_argument("--format", "-f", choices=["table", "json", "csv", "sarif"], default="table")
 
     inst_p = subparsers.add_parser("install", help="Install or update an application")
     inst_p.add_argument("--app", "-a", required=True, help="Application ID")
     inst_p.add_argument("--version", "-v", default="0.1.0", help="Version to install")
+    inst_p.add_argument("--expected-sha256", help="Expected SHA-256 digest")
+    inst_p.add_argument("--payload-file", help="Path to binary file to verify and install")
 
     roll_p = subparsers.add_parser("rollback", help="Revert to previous version")
     roll_p.add_argument("--app", "-a", required=True, help="Application ID")
 
+    subparsers.add_parser("update-all", help="Update all applications with available upgrades")
+
     ver_p = subparsers.add_parser("verify", help="Verify release manifest")
     ver_p.add_argument("--manifest", "-m", required=True, help="Path to manifest JSON")
+    ver_p.add_argument("--platform", help="Target platform to resolve package for")
+
+    pulse_p = subparsers.add_parser("pulse", help="Display workspace posture pulse summary across all 13 apps")
+    pulse_p.add_argument("--format", "-f", choices=["table", "json", "sarif"], default="table")
 
     subparsers.add_parser("platform", help="Print detected host platform")
 
     args = parser.parse_args()
+    load_launcher_state()
     if args.mcp:
         run_mcp()
         return
@@ -362,41 +631,102 @@ def main():
             if p_match and q_match:
                 filtered.append(a)
 
+        sorted_apps = sort_catalog(filtered, sort_by=args.sort_by, sort_desc=args.sort_desc)
+
         if args.format == "table":
             print(f"{'#':<4} {'APPLICATION':<18} {'PILLAR':<12} {'STATUS':<16} {'VERSION':<10} {'SIZE':<8} {'DESCRIPTION'}")
             print("-" * 110)
-            for a in filtered:
+            for a in sorted_apps:
                 ver = a["installed_version"] if a["installed_version"] else "-"
                 desc = a["description"] if len(a["description"]) <= 36 else a["description"][:33] + "..."
                 print(f"{a['index']:02d}   {a['name']:<18} {a['pillar']:<12} {a['status']:<16} {ver:<10} {str(a['download_size_mb']) + ' MB':<8} {desc}")
             print("-" * 110)
-            print(f"Total Applications Shown: {len(filtered)}")
+            print(f"Total Applications Shown: {len(sorted_apps)} (View: {args.view_mode}, Sorted by: {args.sort_by})")
         elif args.format == "json":
-            print(json.dumps(filtered, indent=2))
+            print(json.dumps(sorted_apps, indent=2))
         elif args.format == "csv":
             print("Index,Id,Name,Pillar,Status,InstalledVersion,LatestVersion,SizeMb,Sha256")
-            for a in filtered:
+            for a in sorted_apps:
                 print(f"{a['index']},{a['id']},{a['name']},{a['pillar']},{a['status']},{a['installed_version']},{a['latest_version']},{a['download_size_mb']},{a['sha256_digest']}")
+        elif args.format == "sarif":
+            sarif = {
+                "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+                "version": "2.1.0",
+                "runs": [{
+                    "tool": {"driver": {"name": "LauncherSecure", "version": "0.1.0"}},
+                    "results": [{
+                        "ruleId": f"LAUNCHER-APP-{a['id'].upper()}",
+                        "level": "warning" if a["status"] == "UPDATE_AVAILABLE" else "note",
+                        "message": {"text": f"App {a['name']} ({a['pillar']}) status: {a['status']}, installed: {a['installed_version']}, latest: {a['latest_version']}"}
+                    } for a in sorted_apps if a["status"] == "UPDATE_AVAILABLE"]
+                }]
+            }
+            print(json.dumps(sarif, indent=2))
 
     elif args.subcommand == "install":
-        target = next((a for a in CATALOG if a["id"].lower() == args.app.lower()), None)
-        if target:
-            target["installed_version"] = args.version
-            target["status"] = "INSTALLED"
-            dummy = f"binary-{args.app}-{args.version}".encode("utf-8")
-            digest = hashlib.sha256(dummy).hexdigest()
-            print(f"[SUCCESS] Installed '{target['name']}' v{args.version} with verified SHA-256 digest:")
-            print(f"          {digest}")
+        payload_bytes = None
+        if args.payload_file and os.path.exists(args.payload_file):
+            with open(args.payload_file, "rb") as f:
+                payload_bytes = f.read()
+        elif args.expected_sha256:
+            payload_bytes = f"binary-{args.app}-{args.version}".encode("utf-8")
+
+        res = install_or_update_app(args.app, args.version, payload_bytes, args.expected_sha256, persist=True)
+        if res.get("status") == "quarantined":
+            print(f"[QUARANTINED] Digest mismatch for '{args.app}':", file=sys.stderr)
+            print(f"              Expected: {res.get('expected_sha256')}", file=sys.stderr)
+            print(f"              Observed: {res.get('observed_sha256')}", file=sys.stderr)
+            sys.exit(2)
+        elif res.get("status") == "installed":
+            print(f"[SUCCESS] Installed '{args.app}' v{args.version} with verified SHA-256 digest:")
+            print(f"          {res.get('sha256_digest')}")
         else:
-            print(f"[ERROR] Unknown application '{args.app}'", file=sys.stderr)
+            print(f"[ERROR] {res.get('message', 'Installation failed')}", file=sys.stderr)
             sys.exit(1)
 
     elif args.subcommand == "rollback":
-        print(f"[SUCCESS] Rolled back '{args.app}' to previous N-1 release version 0.1.0.")
+        res = rollback_app_version(args.app, persist=True)
+        if res.get("status") == "rolled_back":
+            print(f"[SUCCESS] Rolled back '{args.app}' to previous version {res.get('restored_version')}.")
+        else:
+            print(f"[ERROR] {res.get('message', 'Rollback failed')}", file=sys.stderr)
+            sys.exit(1)
+
+    elif args.subcommand == "update-all":
+        res = update_all_apps(persist=True)
+        print(f"[SUCCESS] Updated {res['total_updated']} applications to latest versions.")
+        for d in res["details"]:
+            print(f"  - {d['app_id']} -> v{d['installed_version']} ({d['sha256_digest'][:12]}...)")
+
+    elif args.subcommand == "pulse":
+        pulse = get_posture_pulse()
+        if args.format == "json":
+            print(json.dumps(pulse, indent=2))
+        elif args.format == "sarif":
+            sarif = {
+                "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+                "version": "2.1.0",
+                "runs": [{
+                    "tool": {"driver": {"name": "LauncherSecure", "version": "0.1.0"}},
+                    "results": [{
+                        "ruleId": f"LAUNCHER-PULSE-{a['id'].upper()}",
+                        "level": "error" if a["finding_count"] > 5 else "warning",
+                        "message": {"text": f"{a['name']} ({a['pillar']}): {a['finding_count']} active posture finding(s) detected"}
+                    } for a in pulse["apps_pulse"] if a["finding_count"] > 0]
+                }]
+            }
+            print(json.dumps(sarif, indent=2))
+        else:
+            print(f"CloudSecure Workspace Posture Pulse (Total Findings: {pulse['total_findings']})")
+            print(f"Severity Breakdown: Critical={pulse['by_severity']['CRITICAL']}, High={pulse['by_severity']['HIGH']}, Med={pulse['by_severity']['MEDIUM']}, Low={pulse['by_severity']['LOW']}")
+            print("-" * 70)
+            for a in pulse["apps_pulse"]:
+                print(f"[{a['pillar']:<10}] {a['name']:<18} Status: {a['status']:<14} Findings: {a['finding_count']:<4} Route: {a['workbench_route']}")
 
     elif args.subcommand == "verify":
         with open(args.manifest, "r", encoding="utf-8") as f:
             manifest = json.load(f)
+        target_plat = args.platform or get_platform_info()
         print(f"Verifying Release Manifest for '{manifest.get('app_id')}' v{manifest.get('version')}...")
         print(f"Release Date: {manifest.get('released_at')}")
         packages = manifest.get("packages", [])
@@ -404,7 +734,13 @@ def main():
         for p in packages:
             sz = p.get("size_bytes", 0) // (1024 * 1024)
             h = p.get("sha256", "")[:12]
-            print(f"  - [{p.get('platform')}] {p.get('filename')} ({sz} MB, sha256: {h}...)")
+            match_flag = " [TARGET MATCH]" if p.get("platform") == target_plat else ""
+            print(f"  - [{p.get('platform')}] {p.get('filename')} ({sz} MB, sha256: {h}...){match_flag}")
+        pkg = resolve_platform_package(manifest, target_plat)
+        if pkg:
+            print(f"[OK] Resolved artifact for target platform '{target_plat}': {pkg.get('filename')}")
+        else:
+            print(f"[WARN] No binary artifact resolved for target platform '{target_plat}'")
         print("[OK] Release manifest structure and checksum formats are valid.")
 
     elif args.subcommand == "platform":

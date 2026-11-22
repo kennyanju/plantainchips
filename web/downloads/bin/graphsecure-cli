@@ -52,6 +52,44 @@ def find_attack_paths(graph, active_edges=None):
 
     return paths
 
+def filter_paths_by_template(graph, paths, template):
+    if not template or template == "all":
+        return paths
+
+    nodes = {n["id"]: n for n in graph.get("nodes", [])}
+    edges = {e["id"]: e for e in graph.get("edges", [])}
+
+    filtered = []
+    for p in paths:
+        if template == "internet-cve-crown-jewel":
+            has_cve = any(len(nodes.get(h, {}).get("cves", [])) > 0 for h in p["hops"])
+            if has_cve:
+                filtered.append(p)
+        elif template == "container-escape-iam-admin":
+            has_container = any(nodes.get(h, {}).get("node_type") == "container" for h in p["hops"])
+            has_admin_role = any(
+                nodes.get(h, {}).get("node_type") == "iam-role" and (
+                    "admin" in nodes.get(h, {}).get("name", "").lower()
+                    or any("wildcard" in m.lower() for m in nodes.get(h, {}).get("misconfigurations", []))
+                )
+                for h in p["hops"]
+            )
+            if has_container and has_admin_role:
+                filtered.append(p)
+        elif template == "cross-account-sensitive-data":
+            has_lateral_or_role = any(
+                edges.get(e, {}).get("edge_type") in ("lateral-move", "assumes-role")
+                for e in p["edges"]
+            )
+            terminal_node = nodes.get(p["hops"][-1], {})
+            ends_at_datastore = terminal_node.get("node_type") in ("data-store", "database")
+            if has_lateral_or_role and ends_at_datastore:
+                filtered.append(p)
+        else:
+            filtered.append(p)
+
+    return filtered
+
 def compute_choke_points(graph, paths):
     if not paths:
         return []
@@ -98,6 +136,10 @@ def run_mcp():
             continue
         req_id = req.get("id")
         method = req.get("method")
+
+        if req_id is None:
+            # JSON-RPC / MCP notifications do not have an ID and must not receive a response
+            continue
         
         if method == "initialize":
             resp = {
@@ -120,7 +162,14 @@ def run_mcp():
                             "description": "Discover all multi-hop breach paths from Internet exposure to Crown Jewel assets",
                             "inputSchema": {
                                 "type": "object",
-                                "properties": {"graph_json": {"type": "string"}},
+                                "properties": {
+                                    "graph_json": {"type": "string"},
+                                    "template": {
+                                        "type": "string",
+                                        "enum": ["all", "internet-cve-crown-jewel", "container-escape-iam-admin", "cross-account-sensitive-data"],
+                                        "description": "Toxic combination template filter"
+                                    }
+                                },
                                 "required": ["graph_json"]
                             }
                         },
@@ -154,9 +203,12 @@ def run_mcp():
             args = params.get("arguments", {})
             if name == "graph_find_attack_paths":
                 raw_json = args.get("graph_json", "{}")
+                template = args.get("template", "all")
                 try:
                     graph = json.loads(raw_json)
                     paths = find_attack_paths(graph)
+                    if template != "all":
+                        paths = filter_paths_by_template(graph, paths, template)
                     tool_res = {"paths_count": len(paths), "paths": paths}
                 except Exception as e:
                     tool_res = {"error": str(e)}
@@ -193,12 +245,15 @@ def run_mcp():
             else:
                 tool_res = {"error": f"Unknown tool: {name}"}
 
+            call_result = {
+                "content": [{"type": "text", "text": json.dumps(tool_res, indent=2)}]
+            }
+            if isinstance(tool_res, dict) and "error" in tool_res:
+                call_result["isError"] = True
             resp = {
                 "jsonrpc": "2.0",
                 "id": req_id,
-                "result": {
-                    "content": [{"type": "text", "text": json.dumps(tool_res, indent=2)}]
-                }
+                "result": call_result
             }
         else:
             resp = {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": "Method not found"}}
@@ -213,6 +268,7 @@ def main():
 
     paths_p = subparsers.add_parser("paths", help="Discover attack paths")
     paths_p.add_argument("--input", "-i", required=True, help="Path to graph JSON file")
+    paths_p.add_argument("--template", "-t", choices=["all", "internet-cve-crown-jewel", "container-escape-iam-admin", "cross-account-sensitive-data"], default="all", help="Filter by built-in toxic combination template")
     paths_p.add_argument("--format", "-f", choices=["table", "json", "sarif", "csv"], default="table")
 
     choke_p = subparsers.add_parser("choke-points", help="Rank remediation choke points")
@@ -232,6 +288,8 @@ def main():
         with open(args.input, "r", encoding="utf-8") as f:
             graph = json.load(f)
         paths = find_attack_paths(graph)
+        if args.template != "all":
+            paths = filter_paths_by_template(graph, paths, args.template)
 
         if args.format == "table":
             print(f"{'SEVERITY':<10} {'PATH ID':<12} {'HOPS':<6} {'TITLE':<42} {'TERMINAL ASSET'}")

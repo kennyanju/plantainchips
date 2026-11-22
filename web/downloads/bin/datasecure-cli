@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import sys, os, json, argparse, hashlib, datetime, re
+import sys, os, json, argparse, hashlib, datetime, re, math, collections
 
 def luhn_validate(card_num: str) -> bool:
     digits = [int(c) for c in card_num if c.isdigit()]
@@ -16,6 +16,13 @@ def luhn_validate(card_num: str) -> bool:
         double = not double
     return checksum % 10 == 0
 
+def shannon_entropy(s: str) -> float:
+    if not s:
+        return 0.0
+    counts = collections.Counter(s)
+    length = len(s)
+    return -sum((count / length) * math.log2(count / length) for count in counts.values())
+
 def redact_token(raw: str):
     h = hashlib.sha256(raw.encode("utf-8")).hexdigest()
     if len(raw) <= 8:
@@ -28,22 +35,60 @@ def redact_token(raw: str):
 
 def scan_text(text: str):
     hits = []
-    
-    # 1. AWS Access Key ID
-    for token in text.split():
-        cleaned = re.sub(r'[^A-Za-z0-9]', '', token)
-        if cleaned.startswith("AKIA") and len(cleaned) == 20:
-            redacted, fp = redact_token(cleaned)
-            hits.append({
-                "category": "SECRET",
-                "rule_name": "AWS_ACCESS_KEY_ID",
-                "hit_count": 1,
-                "confidence": 1.0,
-                "redacted_sample": redacted,
-                "sha256_fingerprint": fp
-            })
 
-    # 2. Private Key Header
+    # 1. AWS Access Key ID (AKIA / ASIA)
+    for match in re.finditer(r'\b(AKIA|ASIA)[0-9A-Z]{16}\b', text):
+        val = match.group(0)
+        redacted, fp = redact_token(val)
+        hits.append({
+            "category": "SECRET",
+            "rule_name": "AWS_ACCESS_KEY_ID",
+            "hit_count": 1,
+            "confidence": 1.0,
+            "redacted_sample": redacted,
+            "sha256_fingerprint": fp
+        })
+
+    # 2. GitHub PAT (ghp_ or github_pat_)
+    for match in re.finditer(r'\b(ghp_[a-zA-Z0-9]{36}|github_pat_[a-zA-Z0-9_]{82})\b', text):
+        val = match.group(0)
+        redacted, fp = redact_token(val)
+        hits.append({
+            "category": "SECRET",
+            "rule_name": "GITHUB_PERSONAL_ACCESS_TOKEN",
+            "hit_count": 1,
+            "confidence": 1.0,
+            "redacted_sample": redacted,
+            "sha256_fingerprint": fp
+        })
+
+    # 3. Stripe Live Secret Key
+    for match in re.finditer(r'\bsk_live_[0-9a-zA-Z]{24,34}\b', text):
+        val = match.group(0)
+        redacted, fp = redact_token(val)
+        hits.append({
+            "category": "SECRET",
+            "rule_name": "STRIPE_LIVE_API_KEY",
+            "hit_count": 1,
+            "confidence": 1.0,
+            "redacted_sample": redacted,
+            "sha256_fingerprint": fp
+        })
+
+    # 4. Slack Bot Token
+    for match in re.finditer(r'\bxoxb-[0-9]{11,13}-[0-9]{11,13}-[a-zA-Z0-9]{24}\b', text):
+        val = match.group(0)
+        redacted, fp = redact_token(val)
+        hits.append({
+            "category": "SECRET",
+            "rule_name": "SLACK_BOT_TOKEN",
+            "hit_count": 1,
+            "confidence": 1.0,
+            "redacted_sample": redacted,
+            "sha256_fingerprint": fp
+        })
+
+    # 5. Private Key Header
     if "-----BEGIN PRIVATE KEY-----" in text or "-----BEGIN RSA PRIVATE KEY-----" in text:
         redacted, fp = redact_token("PRIVATE_KEY_BLOCK")
         hits.append({
@@ -55,7 +100,23 @@ def scan_text(text: str):
             "sha256_fingerprint": fp
         })
 
-    # 3. US SSN Pattern (XXX-XX-XXXX)
+    # 6. High Shannon Entropy Token (H >= 4.5 on len >= 20)
+    for word in text.split():
+        cleaned = re.sub(r'[^A-Za-z0-9+/=_-]', '', word)
+        if len(cleaned) >= 20 and not cleaned.startswith(("http", "https")):
+            ent = shannon_entropy(cleaned)
+            if ent >= 4.5:
+                redacted, fp = redact_token(cleaned)
+                hits.append({
+                    "category": "SECRET",
+                    "rule_name": "HIGH_SHANNON_ENTROPY_TOKEN",
+                    "hit_count": 1,
+                    "confidence": 0.90,
+                    "redacted_sample": redacted,
+                    "sha256_fingerprint": fp
+                })
+
+    # 7. US SSN Pattern (XXX-XX-XXXX)
     ssn_matches = re.findall(r'\b\d{3}-\d{2}-\d{4}\b', text)
     for ssn in ssn_matches:
         redacted, fp = redact_token(ssn)
@@ -68,7 +129,46 @@ def scan_text(text: str):
             "sha256_fingerprint": fp
         })
 
-    # 4. Payment Card PAN (Luhn validated)
+    # 8. Email Addresses
+    emails = re.findall(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b', text)
+    for email in emails:
+        redacted, fp = redact_token(email)
+        hits.append({
+            "category": "PII",
+            "rule_name": "EMAIL_ADDRESS",
+            "hit_count": 1,
+            "confidence": 0.95,
+            "redacted_sample": redacted,
+            "sha256_fingerprint": fp
+        })
+
+    # 9. International Bank Account Number (IBAN)
+    iban_matches = re.findall(r'\b[A-Z]{2}[0-9]{2}[A-Z0-9]{4}[0-9]{7}(?:[A-Z0-9]?){0,16}\b', text)
+    for iban in iban_matches:
+        redacted, fp = redact_token(iban)
+        hits.append({
+            "category": "FINANCIAL",
+            "rule_name": "IBAN_BANK_ACCOUNT",
+            "hit_count": 1,
+            "confidence": 0.92,
+            "redacted_sample": redacted,
+            "sha256_fingerprint": fp
+        })
+
+    # 10. Medical Record Number (PHI)
+    mrn_matches = re.findall(r'\bMRN-\d{6,10}\b', text)
+    for mrn in mrn_matches:
+        redacted, fp = redact_token(mrn)
+        hits.append({
+            "category": "PHI",
+            "rule_name": "MEDICAL_RECORD_NUMBER",
+            "hit_count": 1,
+            "confidence": 0.98,
+            "redacted_sample": redacted,
+            "sha256_fingerprint": fp
+        })
+
+    # 11. Payment Card PAN (Luhn validated)
     for word in text.split():
         candidate = re.sub(r'[^0-9]', '', word)
         if len(candidate) in (15, 16) and luhn_validate(candidate):
@@ -93,6 +193,51 @@ def scan_store(store):
         store["classifications"] = store.get("classifications", [])
     return store
 
+def evaluate_lineage(stores):
+    # Detect directed data replication flows and flags
+    # E.g. stores replicated across regions or production data copied to staging
+    issues = []
+    store_map = {s["id"]: s for s in stores}
+
+    for s in stores:
+        lineage_edges = s.get("lineage_edges", [])
+        for target_id in lineage_edges:
+            target = store_map.get(target_id)
+            if not target:
+                continue
+
+            # Flag 1: Production sensitive data copied into unencrypted or public store
+            s_classes = s.get("classifications", [])
+            has_sensitive = any(c.get("category") in ("PII", "PCI", "PHI", "SECRET") for c in s_classes)
+            if has_sensitive and (target.get("is_public") or not target.get("encryption_enabled")):
+                issues.append({
+                    "rule_id": "DDR-DSPM-002",
+                    "source_id": s["id"],
+                    "target_id": target["id"],
+                    "source_name": s["name"],
+                    "target_name": target["name"],
+                    "severity": "CRITICAL",
+                    "description": f"Sensitive production store '{s['name']}' replicates data into unencrypted or public store '{target['name']}'."
+                })
+
+            # Flag 2: Cross-region data sovereignty drift (e.g. EU data copied to US)
+            s_reg = s.get("region", "")
+            t_reg = target.get("region", "")
+            if s_reg and t_reg and s_reg != t_reg:
+                issues.append({
+                    "rule_id": "DDR-DSPM-004",
+                    "source_id": s["id"],
+                    "target_id": target["id"],
+                    "source_name": s["name"],
+                    "target_name": target["name"],
+                    "source_region": s_reg,
+                    "target_region": t_reg,
+                    "severity": "HIGH",
+                    "description": f"Cross-region replication drift from {s_reg} to {t_reg} detected between '{s['name']}' and '{target['name']}'."
+                })
+
+    return issues
+
 def evaluate_ddr(stores):
     findings = []
     for s in stores:
@@ -100,12 +245,13 @@ def evaluate_ddr(stores):
         classes = s.get("classifications", [])
         has_pci = any(c.get("category") == "PCI" for c in classes)
         has_pii = any(c.get("category") == "PII" for c in classes)
+        has_phi = any(c.get("category") == "PHI" for c in classes)
         has_secrets = any(c.get("category") == "SECRET" for c in classes)
-        
-        # DDR-DSPM-001: Public Exposure
-        if s.get("is_public", False) and (has_pci or has_pii or has_secrets):
-            hcl = f"""# Revoke public exposure on {s.get('name')}
-resource "aws_s3_bucket_public_access_block" "{s.get('name')}_block" {{
+        is_sensitive = has_pci or has_pii or has_phi or has_secrets
+
+        # DDR-DSPM-001: Public Exposure of Sensitive Data
+        if s.get("is_public", False) and is_sensitive:
+            hcl = f"""resource "aws_s3_bucket_public_access_block" "{s.get('name')}_block" {{
   bucket = "{s.get('name')}"
   block_public_acls       = true
   block_public_policy     = true
@@ -168,6 +314,89 @@ resource "aws_s3_bucket_public_access_block" "{s.get('name')}_block" {{
                 "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()
             })
 
+        # DDR-DSPM-003: Missing KMS CMK Encryption on Classified Store
+        if is_sensitive and not s.get("kms_key_id"):
+            findings.append({
+                "id": f"DDR-DSPM-003-{s.get('id')}",
+                "rule_id": "DDR-DSPM-003",
+                "title": "Sensitive Store Lacks Customer Managed KMS Key",
+                "severity": "MEDIUM",
+                "status": "FAIL",
+                "provider": s.get("provider", "aws"),
+                "account_id": s.get("account_id", ""),
+                "region": s.get("region", ""),
+                "resource_id": s.get("id"),
+                "resource_arn": s.get("arn"),
+                "resource_type": s.get("store_type"),
+                "framework_mappings": ["NIST 800-53: SC-13", "ISO 27001: A.10.1.1"],
+                "evidence": {
+                    "rule_id": "DDR-DSPM-003",
+                    "target_path": f"{s.get('name')}.kms_key_id",
+                    "expected_value": "Dedicated KMS CMK ARN",
+                    "observed_value": "Default key or unencrypted",
+                    "message": f"Data store '{s.get('name')}' holds classified records without customer-managed key encryption.",
+                    "resource_state_hash": state_hash
+                },
+                "remediation": None,
+                "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()
+            })
+
+        # DDR-DSPM-005: Bulk Read Exfiltration Risk (>100k records)
+        rec_count = s.get("records_count", 0)
+        if rec_count >= 100000 and is_sensitive and s.get("is_public"):
+            findings.append({
+                "id": f"DDR-DSPM-005-{s.get('id')}",
+                "rule_id": "DDR-DSPM-005",
+                "title": "Bulk Sensitive Data Exfiltration Risk (>100,000 Records)",
+                "severity": "CRITICAL",
+                "status": "FAIL",
+                "provider": s.get("provider", "aws"),
+                "account_id": s.get("account_id", ""),
+                "region": s.get("region", ""),
+                "resource_id": s.get("id"),
+                "resource_arn": s.get("arn"),
+                "resource_type": s.get("store_type"),
+                "framework_mappings": ["SOC 2: CC7.2", "PCI-DSS: 10.2"],
+                "evidence": {
+                    "rule_id": "DDR-DSPM-005",
+                    "target_path": f"{s.get('name')}.records_count",
+                    "expected_value": "< 100,000 public records",
+                    "observed_value": f"{rec_count:,} sensitive records exposed",
+                    "message": f"Data store '{s.get('name')}' holds {rec_count:,} classified records exposed to exfiltration.",
+                    "resource_state_hash": state_hash
+                },
+                "remediation": None,
+                "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()
+            })
+
+    # Ingest Lineage Findings as DDR-DSPM-004
+    lineage_issues = evaluate_lineage(stores)
+    for issue in lineage_issues:
+        findings.append({
+            "id": f"{issue['rule_id']}-{issue['source_id']}-{issue['target_id']}",
+            "rule_id": issue["rule_id"],
+            "title": f"Data Lineage Violation: {issue['rule_id']}",
+            "severity": issue["severity"],
+            "status": "FAIL",
+            "provider": "multi-cloud",
+            "account_id": "",
+            "region": issue.get("target_region", ""),
+            "resource_id": issue["source_id"],
+            "resource_arn": f"lineage:{issue['source_id']}->{issue['target_id']}",
+            "resource_type": "data-lineage-edge",
+            "framework_mappings": ["GDPR: Art 44", "SOC 2: CC6.6"],
+            "evidence": {
+                "rule_id": issue["rule_id"],
+                "target_path": f"{issue['source_name']} -> {issue['target_name']}",
+                "expected_value": "Compliant data residency boundary",
+                "observed_value": issue["description"],
+                "message": issue["description"],
+                "resource_state_hash": hashlib.sha256(issue["description"].encode()).hexdigest()
+            },
+            "remediation": None,
+            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()
+        })
+
     return findings
 
 def run_mcp():
@@ -180,7 +409,11 @@ def run_mcp():
             continue
         req_id = req.get("id")
         method = req.get("method")
-        
+
+        if req_id is None:
+            # JSON-RPC / MCP notifications do not have an ID and must not receive a response
+            continue
+
         if method == "initialize":
             resp = {
                 "jsonrpc": "2.0",
@@ -198,8 +431,8 @@ def run_mcp():
                 "result": {
                     "tools": [
                         {
-                            "name": "dspm_scan_datastore",
-                            "description": "Scan and classify data stores for sensitive PII, PCI, credentials, and evaluate DDR risk",
+                            "name": "datasecure_scan_inventory",
+                            "description": "Scan and classify multi-cloud data stores for PII, PCI, PHI, and credentials with DDR evaluation",
                             "inputSchema": {
                                 "type": "object",
                                 "properties": {"datastore_json": {"type": "string"}},
@@ -207,8 +440,17 @@ def run_mcp():
                             }
                         },
                         {
-                            "name": "dspm_list_exposed_pii",
-                            "description": "List data stores with public access containing sensitive classified records",
+                            "name": "datasecure_classify_text",
+                            "description": "Scan raw text or JSON buffer for sensitive patterns, entropy, and emit redacted samples",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {"text": {"type": "string"}},
+                                "required": ["text"]
+                            }
+                        },
+                        {
+                            "name": "datasecure_audit_lineage",
+                            "description": "Evaluate data replication flow graph for cross-region sovereignty and shadow leakage",
                             "inputSchema": {
                                 "type": "object",
                                 "properties": {"datastore_json": {"type": "string"}},
@@ -216,21 +458,12 @@ def run_mcp():
                             }
                         },
                         {
-                            "name": "dspm_evaluate_ddr_events",
+                            "name": "datasecure_evaluate_ddr",
                             "description": "Evaluate Data Detection and Response (DDR) findings on cloud data stores",
                             "inputSchema": {
                                 "type": "object",
                                 "properties": {"datastore_json": {"type": "string"}},
                                 "required": ["datastore_json"]
-                            }
-                        },
-                        {
-                            "name": "dspm_generate_remediation",
-                            "description": "Generate Terraform HCL patch to lock down exposed or unencrypted data stores",
-                            "inputSchema": {
-                                "type": "object",
-                                "properties": {"store_name": {"type": "string"}},
-                                "required": ["store_name"]
                             }
                         }
                     ]
@@ -240,7 +473,7 @@ def run_mcp():
             params = req.get("params", {})
             name = params.get("name")
             args = params.get("arguments", {})
-            if name == "dspm_scan_datastore":
+            if name == "datasecure_scan_inventory":
                 raw_json = args.get("datastore_json", "[]")
                 try:
                     stores = json.loads(raw_json)
@@ -248,61 +481,48 @@ def run_mcp():
                         scan_store(s)
                     findings = evaluate_ddr(stores)
                     tool_res = {
-                        "stores_scanned": len(stores),
-                        "findings_count": len(findings),
-                        "stores": stores
+                        "scanned_stores": len(stores),
+                        "total_findings": len(findings),
+                        "findings": findings
                     }
                 except Exception as e:
                     tool_res = {"error": str(e)}
-            elif name == "dspm_list_exposed_pii":
+            elif name == "datasecure_classify_text":
+                txt = args.get("text", "")
+                hits = scan_text(txt)
+                tool_res = {"hits_count": len(hits), "hits": hits}
+            elif name == "datasecure_audit_lineage":
                 raw_json = args.get("datastore_json", "[]")
                 try:
                     stores = json.loads(raw_json)
                     for s in stores:
                         scan_store(s)
-                    exposed = [s for s in stores if s.get("is_public") and s.get("classifications")]
-                    tool_res = {"exposed_count": len(exposed), "exposed_stores": exposed}
+                    lineage = evaluate_lineage(stores)
+                    tool_res = {"lineage_violations_count": len(lineage), "violations": lineage}
                 except Exception as e:
                     tool_res = {"error": str(e)}
-            elif name == "dspm_evaluate_ddr_events":
+            elif name == "datasecure_evaluate_ddr":
                 raw_json = args.get("datastore_json", "[]")
                 try:
                     stores = json.loads(raw_json)
                     for s in stores:
                         scan_store(s)
                     findings = evaluate_ddr(stores)
-                    tool_res = {"findings_count": len(findings), "findings": findings}
+                    tool_res = {"ddr_findings_count": len(findings), "findings": findings}
                 except Exception as e:
                     tool_res = {"error": str(e)}
-            elif name == "dspm_generate_remediation":
-                sname = args.get("store_name", "target_store")
-                patch = f"""# Revoke public exposure and enforce encryption on {sname}
-resource "aws_s3_bucket_public_access_block" "{sname}_block" {{
-  bucket = "{sname}"
-  block_public_acls       = true
-  block_public_policy     = true
-  ignore_public_acls      = true
-  restrict_public_buckets = true
-}}
-
-resource "aws_s3_bucket_server_side_encryption_configuration" "{sname}_encryption" {{
-  bucket = "{sname}"
-  rule {{
-    apply_server_side_encryption_by_default {{
-      sse_algorithm = "aws:kms"
-    }}
-  }}
-}}"""
-                tool_res = {"store_name": sname, "terraform_patch": patch}
             else:
                 tool_res = {"error": f"Unknown tool: {name}"}
 
+            call_result = {
+                "content": [{"type": "text", "text": json.dumps(tool_res, indent=2)}]
+            }
+            if isinstance(tool_res, dict) and "error" in tool_res:
+                call_result["isError"] = True
             resp = {
                 "jsonrpc": "2.0",
                 "id": req_id,
-                "result": {
-                    "content": [{"type": "text", "text": json.dumps(tool_res, indent=2)}]
-                }
+                "result": call_result
             }
         else:
             resp = {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": "Method not found"}}
@@ -311,21 +531,23 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "{sname}_encryptio
         sys.stdout.flush()
 
 def main():
-    parser = argparse.ArgumentParser(description="DataSecure CLI: DSPM & DDR Engine")
+    parser = argparse.ArgumentParser(description="DataSecure CLI: DSPM and DDR Engine")
     parser.add_argument("--mcp", action="store_true", help="Run Model Context Protocol stdio server")
     subparsers = parser.add_subparsers(dest="subcommand")
 
-    scan_p = subparsers.add_parser("scan", help="Scan and classify data stores")
-    scan_p.add_argument("--input", "-i", required=True, help="Path to data store JSON inventory")
-    scan_p.add_argument("--format", "-f", choices=["table", "json", "sarif", "csv"], default="table")
-    scan_p.add_argument("--category", "-c", help="Filter by category (PII, PCI, SECRET, PHI, FINANCIAL)")
+    scan_p = subparsers.add_parser("scan", help="Scan datastores for sensitive records and DDR alerts")
+    scan_p.add_argument("--input", "-i", required=True, help="Path to data lake JSON inventory")
+    scan_p.add_argument("--format", "-f", choices=["table", "json", "sarif"], default="table")
 
-    ddr_p = subparsers.add_parser("ddr", help="Run Data Detection and Response (DDR) rules")
-    ddr_p.add_argument("--input", "-i", required=True, help="Path to data store JSON inventory")
-    ddr_p.add_argument("--format", "-f", choices=["table", "json", "sarif", "csv"], default="table")
+    class_p = subparsers.add_parser("classify", help="Classify sensitive content in text or file")
+    class_p.add_argument("--text", "-t", help="Raw string to classify")
+    class_p.add_argument("--file", help="File to scan")
 
-    rem_p = subparsers.add_parser("remediate", help="Generate remediation patch")
-    rem_p.add_argument("--store-name", "-n", required=True, help="Target data store name")
+    lineage_p = subparsers.add_parser("lineage", help="Audit data replication lineage graph")
+    lineage_p.add_argument("--input", "-i", required=True, help="Path to data lake JSON inventory")
+
+    ddr_p = subparsers.add_parser("ddr", help="Run DDR exfiltration and exposure evaluation")
+    ddr_p.add_argument("--input", "-i", required=True, help="Path to data lake JSON inventory")
 
     args = parser.parse_args()
     if args.mcp:
@@ -337,48 +559,20 @@ def main():
             stores = json.load(f)
         for s in stores:
             scan_store(s)
-
-        cat_filter = args.category.upper() if args.category else None
-        if args.format == "table":
-            print(f"{'DATA STORE':<24} {'TYPE':<16} {'PUBLIC':<8} {'ENCRYPTED':<12} {'HITS':<8} {'CLASSIFICATIONS'}")
-            print("-" * 105)
-            for s in stores:
-                classes = s.get("classifications", [])
-                if cat_filter:
-                    classes = [c for c in classes if c.get("category") == cat_filter]
-                hits_str = ", ".join([c["rule_name"] for c in classes]) if classes else "None"
-                pub_str = "YES [!]" if s.get("is_public") else "NO"
-                enc_str = "YES" if s.get("encryption_enabled") else "NO [!]"
-                print(f"{s.get('name', 'unknown'):<24} {str(s.get('store_type', '')): <16} {pub_str:<8} {enc_str:<12} {len(classes):<8} {hits_str}")
-            print("-" * 105)
-            print(f"Total Data Stores: {len(stores)}")
-        elif args.format == "json":
-            print(json.dumps(stores, indent=2))
-        elif args.format == "csv":
-            print("Name,StoreType,Provider,IsPublic,EncryptionEnabled,Hits")
-            for s in stores:
-                classes = [c["rule_name"] for c in s.get("classifications", [])]
-                print(f"{s.get('name')},{s.get('store_type')},{s.get('provider')},{s.get('is_public')},{s.get('encryption_enabled')},\"{';'.join(classes)}\"")
-        elif args.format == "sarif":
-            print(json.dumps({"info": "Use 'ddr --format sarif' for SARIF vulnerability results"}, indent=2))
-
-    elif args.subcommand == "ddr":
-        with open(args.input, "r", encoding="utf-8") as f:
-            stores = json.load(f)
-        for s in stores:
-            scan_store(s)
         findings = evaluate_ddr(stores)
 
         if args.format == "table":
-            print(f"{'SEVERITY':<10} {'RULE ID':<18} {'RESOURCE':<26} {'TITLE'}")
-            print("-" * 105)
-            for f in findings:
-                glyph = "[!]" if f["severity"] == "CRITICAL" else "[/!\\]"
-                print(f"{glyph + ' ' + f['severity']:<10} {f['rule_id']:<18} {f['resource_id']:<26} {f['title']}")
-            print("-" * 105)
-            print(f"Total DDR Findings: {len(findings)}")
+            print(f"{'DATA STORE':<30} {'TYPE':<20} {'PUBLIC':<8} {'ENCRYPTED':<10} {'CLASSIFICATIONS'}")
+            print("-" * 110)
+            for s in stores:
+                classes = ", ".join(f"{c['rule_name']} ({c['category']})" for c in s.get("classifications", []))
+                if not classes:
+                    classes = "None"
+                print(f"{s.get('name'):<30} {s.get('store_type'):<20} {str(s.get('is_public')):<8} {str(s.get('encryption_enabled')):<10} {classes}")
+            print("-" * 110)
+            print(f"Total Stores: {len(stores)} | Total DDR Findings: {len(findings)}")
         elif args.format == "json":
-            print(json.dumps(findings, indent=2))
+            print(json.dumps({"stores": stores, "findings": findings}, indent=2))
         elif args.format == "sarif":
             sarif = {
                 "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
@@ -393,33 +587,37 @@ def main():
                 }]
             }
             print(json.dumps(sarif, indent=2))
-        elif args.format == "csv":
-            print("Severity,RuleID,ResourceID,ResourceArn,Title,Message")
-            for f in findings:
-                print(f"{f['severity']},{f['rule_id']},{f['resource_id']},{f['resource_arn']},\"{f['title']}\",\"{f['evidence']['message']}\"")
-        if any(f["severity"] == "CRITICAL" for f in findings):
-            sys.exit(1)
 
-    elif args.subcommand == "remediate":
-        sname = args.store_name
-        patch = f"""# Revoke public exposure and enforce encryption on {sname}
-resource "aws_s3_bucket_public_access_block" "{sname}_block" {{
-  bucket = "{sname}"
-  block_public_acls       = true
-  block_public_policy     = true
-  ignore_public_acls      = true
-  restrict_public_buckets = true
-}}
+    elif args.subcommand == "classify":
+        content = args.text or ""
+        if args.file and os.path.exists(args.file):
+            with open(args.file, "r", encoding="utf-8") as f:
+                content = f.read()
+        hits = scan_text(content)
+        print(f"Classified Hits ({len(hits)}):")
+        for h in hits:
+            print(f"  [{h['category']}] {h['rule_name']} (Confidence: {h['confidence']}) -> Redacted: {h['redacted_sample']}")
 
-resource "aws_s3_bucket_server_side_encryption_configuration" "{sname}_encryption" {{
-  bucket = "{sname}"
-  rule {{
-    apply_server_side_encryption_by_default {{
-      sse_algorithm = "aws:kms"
-    }}
-  }}
-}}"""
-        print(f"# DataSecure Automated Remediation for '{sname}'\n{patch}")
+    elif args.subcommand == "lineage":
+        with open(args.input, "r", encoding="utf-8") as f:
+            stores = json.load(f)
+        for s in stores:
+            scan_store(s)
+        violations = evaluate_lineage(stores)
+        print(f"Data Lineage Violations ({len(violations)}):")
+        for v in violations:
+            print(f"  [{v['severity']}] {v['rule_id']}: {v['description']}")
+
+    elif args.subcommand == "ddr":
+        with open(args.input, "r", encoding="utf-8") as f:
+            stores = json.load(f)
+        for s in stores:
+            scan_store(s)
+        findings = evaluate_ddr(stores)
+        print(f"DDR Findings ({len(findings)}):")
+        for f in findings:
+            print(f"  [{f['severity']}] {f['rule_id']}: {f['title']} ({f['resource_id']})")
+
     else:
         parser.print_help()
 

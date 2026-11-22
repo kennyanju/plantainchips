@@ -73,6 +73,7 @@ enum OutputFormat {
     Table,
     Json,
     Tree,
+    Sarif,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -88,6 +89,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             match format {
                 OutputFormat::Json => {
                     println!("{}", serde_json::to_string_pretty(&plan)?);
+                }
+                OutputFormat::Sarif => {
+                    let results: Vec<_> = plan.validation_errors.iter().map(|err| {
+                        serde_json::json!({
+                            "ruleId": "POLICY-RQL-SYNTAX",
+                            "level": "error",
+                            "message": { "text": err }
+                        })
+                    }).collect();
+                    let sarif = serde_json::json!({
+                        "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+                        "version": "2.1.0",
+                        "runs": [{
+                            "tool": { "driver": { "name": "PolicySecure", "version": "0.1.0" } },
+                            "results": results
+                        }]
+                    });
+                    println!("{}", serde_json::to_string_pretty(&sarif)?);
                 }
                 OutputFormat::Table | OutputFormat::Tree => {
                     println!("=== PolicySecure RQL Explain Plan ===");
@@ -119,6 +138,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             match format {
                 OutputFormat::Json => {
                     println!("{}", serde_json::to_string_pretty(&report)?);
+                }
+                OutputFormat::Sarif => {
+                    let mut results = Vec::new();
+                    for outcome in &report.results {
+                        if !outcome.is_success {
+                            for f_detail in &outcome.failure_details {
+                                results.push(serde_json::json!({
+                                    "ruleId": outcome.rule_id,
+                                    "level": "error",
+                                    "message": { "text": format!("Fixture test failed: {}", f_detail) }
+                                }));
+                            }
+                        }
+                    }
+                    let sarif = serde_json::json!({
+                        "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+                        "version": "2.1.0",
+                        "runs": [{
+                            "tool": { "driver": { "name": "PolicySecure", "version": "0.1.0" } },
+                            "results": results
+                        }]
+                    });
+                    println!("{}", serde_json::to_string_pretty(&sarif)?);
                 }
                 OutputFormat::Table | OutputFormat::Tree => {
                     println!("=== PolicySecure Policy Pack Test Runner ===");
@@ -170,6 +212,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             match format {
                 OutputFormat::Json => {
                     println!("{}", serde_json::to_string_pretty(&report)?);
+                }
+                OutputFormat::Sarif => {
+                    let mut results = Vec::new();
+                    for err in &report.errors {
+                        results.push(serde_json::json!({
+                            "ruleId": "POLICY-VALIDATION-ERROR",
+                            "level": "error",
+                            "message": { "text": err }
+                        }));
+                    }
+                    for w in &report.warnings {
+                        results.push(serde_json::json!({
+                            "ruleId": "POLICY-VALIDATION-WARNING",
+                            "level": "warning",
+                            "message": { "text": w }
+                        }));
+                    }
+                    let sarif = serde_json::json!({
+                        "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+                        "version": "2.1.0",
+                        "runs": [{
+                            "tool": { "driver": { "name": "PolicySecure", "version": "0.1.0" } },
+                            "results": results
+                        }]
+                    });
+                    println!("{}", serde_json::to_string_pretty(&sarif)?);
                 }
                 OutputFormat::Table | OutputFormat::Tree => {
                     println!("=== PolicySecure Pack Validation ===");
@@ -234,7 +302,10 @@ fn run_mcp_server() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         let request: serde_json::Value = serde_json::from_str(&line)?;
-        let id = request.get("id").cloned();
+        let id = match request.get("id") {
+            Some(v) if !v.is_null() => v.clone(),
+            _ => continue, // JSON-RPC notifications must not receive a response
+        };
         let method = request.get("method").and_then(|m| m.as_str()).unwrap_or("");
 
         let response = match method {
@@ -325,17 +396,22 @@ fn run_mcp_server() -> Result<(), Box<dyn std::error::Error>> {
                     _ => serde_json::json!({ "error": format!("Unknown tool: {}", name) }),
                 };
 
+                let is_error = tool_result.get("error").is_some();
+                let mut res_obj = serde_json::json!({
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": serde_json::to_string_pretty(&tool_result)?
+                        }
+                    ]
+                });
+                if is_error {
+                    res_obj["isError"] = serde_json::json!(true);
+                }
                 serde_json::json!({
                     "jsonrpc": "2.0",
                     "id": id,
-                    "result": {
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": serde_json::to_string_pretty(&tool_result)?
-                            }
-                        ]
-                    }
+                    "result": res_obj
                 })
             }
             _ => serde_json::json!({

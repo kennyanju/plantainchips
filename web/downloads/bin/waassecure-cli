@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import sys, os, json, argparse, hashlib
+import sys, os, json, argparse, hashlib, re
 
 def matches_path_template(spec_path, traffic_uri):
     traffic_path = traffic_uri.split("?")[0]
@@ -26,8 +26,25 @@ def evaluate_traffic(record, spec=None):
     resp_body = record.get("response_body")
     user_identity = record.get("user_identity")
 
-    # 1. API2:2023: Broken Authentication
-    auth_hdr = headers.get("authorization")
+    full_payload = uri + " " + json.dumps(query_params) + " " + (json.dumps(req_body) if req_body else "")
+    full_payload_lower = full_payload.lower()
+
+    # 1. API2:2023: Broken Authentication & JWT alg:none
+    auth_hdr = headers.get("authorization", "")
+    if "eyjhbgcioijub25l" in auth_hdr.lower() or "alg:none" in auth_hdr.lower():
+        violations.append({
+            "rule_id": "API2:2023",
+            "category": "Broken Authentication (JWT alg:none)",
+            "severity": "CRITICAL",
+            "title": "JWT Unsigned Token With alg:none Header",
+            "message": "Authorization header contains an unsigned JWT token with algorithm 'none'.",
+            "traffic_id": record.get("id", ""),
+            "endpoint": uri,
+            "method": method,
+            "evidence_detail": "JWT token specifies alg:none",
+            "suggested_waf_rule": 'http.request.headers["authorization"][*] contains "eyJhbGciOiJub25l"'
+        })
+
     requires_auth = False
     if spec:
         for ep in spec.get("endpoints", []):
@@ -163,7 +180,83 @@ def evaluate_traffic(record, spec=None):
             "suggested_waf_rule": None
         })
 
-    # 7. API9:2023: Improper Inventory Management (Shadow & Zombie APIs)
+    # 7. Web & API Security Top 10 Attack Vectors
+    # SQL Injection
+    if any(p in full_payload_lower for p in ["union select", "' or 1=1", "--", "sleep("]):
+        violations.append({
+            "rule_id": "WAAS-SQLI-001",
+            "category": "Injection (SQLi)",
+            "severity": "CRITICAL",
+            "title": "SQL Injection Signature Detected in Payload",
+            "message": "Request contains SQL injection operators or comment signatures.",
+            "traffic_id": record.get("id", ""),
+            "endpoint": uri,
+            "method": method,
+            "evidence_detail": "Matched SQLi pattern in request body or URI",
+            "suggested_waf_rule": f'http.request.uri.path contains "{uri}" and http.request.body.raw matches "(?i)(union\\\\s+select|\'\\\\s+or\\\\s+1=1|--|sleep\\\\()"'
+        })
+
+    # XSS
+    if any(p in full_payload_lower for p in ["<script", "javascript:", "onerror=", "onload="]):
+        violations.append({
+            "rule_id": "WAAS-XSS-001",
+            "category": "Cross-Site Scripting (XSS)",
+            "severity": "HIGH",
+            "title": "Cross-Site Scripting Script/EventHandler Payload Detected",
+            "message": "Request contains HTML tags or JavaScript event handlers.",
+            "traffic_id": record.get("id", ""),
+            "endpoint": uri,
+            "method": method,
+            "evidence_detail": "Matched XSS tag pattern in request parameters",
+            "suggested_waf_rule": f'http.request.uri.path contains "{uri}" and http.request.body.raw matches "(?i)(<script|javascript:|onerror=|onload=)"'
+        })
+
+    # SSRF / Cloud Metadata
+    if any(p in full_payload_lower for p in ["169.254.169.254", "metadata.google.internal", "127.0.0.1"]):
+        violations.append({
+            "rule_id": "WAAS-SSRF-001",
+            "category": "Server-Side Request Forgery (SSRF)",
+            "severity": "CRITICAL",
+            "title": "Cloud Metadata Service SSRF Destination Detected",
+            "message": "Request payload targets cloud metadata endpoint 169.254.169.254 or localhost loopback.",
+            "traffic_id": record.get("id", ""),
+            "endpoint": uri,
+            "method": method,
+            "evidence_detail": "Matched link-local or loopback IP address in parameter",
+            "suggested_waf_rule": 'http.request.body.raw matches "(169\\\\.254\\\\.169\\\\.254|127\\\\.0\\\\.0\\\\.1|metadata\\\\.google\\\\.internal)"'
+        })
+
+    # Command Injection / Log4Shell
+    if any(p in full_payload_lower for p in ["; cat /etc/passwd", "| id", "${jndi:"]):
+        violations.append({
+            "rule_id": "WAAS-CMDI-001",
+            "category": "Command Injection & Log4Shell",
+            "severity": "CRITICAL",
+            "title": "Operating System Command Injection or JNDI Probe",
+            "message": "Request contains shell chaining operator or Log4Shell JNDI injection string.",
+            "traffic_id": record.get("id", ""),
+            "endpoint": uri,
+            "method": method,
+            "evidence_detail": "Matched shell pipe or JNDI lookup string",
+            "suggested_waf_rule": 'http.request.body.raw matches "(;|\\\\|\\\\s*id|\\\\$\\\\{jndi:)"'
+        })
+
+    # Path Traversal
+    if any(p in full_payload_lower for p in ["../", "..\\", "%2e%2e"]):
+        violations.append({
+            "rule_id": "WAAS-PATH-001",
+            "category": "Path Traversal",
+            "severity": "HIGH",
+            "title": "Directory Traversal Sequence in URI or Parameter",
+            "message": "Request contains relative parent directory escape sequences.",
+            "traffic_id": record.get("id", ""),
+            "endpoint": uri,
+            "method": method,
+            "evidence_detail": "Matched directory traversal sequence '../'",
+            "suggested_waf_rule": 'http.request.uri.path matches "(\\\\.\\\\./|\\\\.\\\\.\\\\|%2e%2e)"'
+        })
+
+    # 8. API9:2023: Improper Inventory Management (Shadow & Zombie APIs)
     if spec:
         matched_ep = None
         for ep in spec.get("endpoints", []):
@@ -237,6 +330,35 @@ def synthesize_waf_rules(violations):
     }
     return cf_expr, json.dumps(aws_group, indent=2)
 
+def synthesize_virtual_patches(violations):
+    cf_expr, aws_json = synthesize_waf_rules(violations)
+
+    modsec_rules = []
+    envoy_routes = []
+
+    for idx, v in enumerate(violations):
+        ep = v.get("endpoint", "")
+        rid = v.get("rule_id", "WAAS")
+        rule_num = 1000 + idx
+        if ep:
+            modsec_rules.append(f'SecRule REQUEST_URI "@contains {ep}" "id:{rule_num},phase:1,deny,status:403,msg:\'{v.get("title")}\'"')
+            envoy_routes.append({
+                "match": {"prefix": ep},
+                "direct_response": {"status": 403, "body": {"inline_string": f"CloudSecure WAAS Blocked: {rid}"}}
+            })
+
+    modsec_output = "\n".join(modsec_rules) if modsec_rules else "# No ModSecurity rules"
+    envoy_output = {
+        "virtual_patches": envoy_routes
+    }
+
+    return {
+        "cloudflare_wirefilter": cf_expr,
+        "aws_wafv2": json.loads(aws_json),
+        "modsecurity": modsec_output,
+        "envoy": envoy_output
+    }
+
 def run_mcp():
     for line in sys.stdin:
         if not line.strip():
@@ -247,6 +369,10 @@ def run_mcp():
             continue
         req_id = req.get("id")
         method = req.get("method")
+
+        if req_id is None:
+            # JSON-RPC / MCP notifications do not have an ID and must not receive a response
+            continue
 
         if method == "initialize":
             resp = {
@@ -277,6 +403,20 @@ def run_mcp():
                             }
                         },
                         {
+                            "name": "waas_test_payload",
+                            "description": "Test an ad-hoc HTTP request payload for web and API security violations (SQLi, XSS, SSRF, CMDI, Traversal)",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "method": {"type": "string"},
+                                    "uri": {"type": "string"},
+                                    "headers": {"type": "object"},
+                                    "body": {"type": "string"}
+                                },
+                                "required": ["uri"]
+                            }
+                        },
+                        {
                             "name": "waas_detect_openapi_drift",
                             "description": "Detect undocumented Shadow APIs and deprecated Zombie APIs by contrasting traffic with OpenAPI specification",
                             "inputSchema": {
@@ -289,8 +429,8 @@ def run_mcp():
                             }
                         },
                         {
-                            "name": "waas_synthesize_waf_rules",
-                            "description": "Synthesize Cloudflare WAF expressions and AWS WAF rule groups from detected API violations",
+                            "name": "waas_synthesize_virtual_patches",
+                            "description": "Generate multi-format virtual patches across Cloudflare, AWS WAFv2, ModSecurity, and Envoy",
                             "inputSchema": {
                                 "type": "object",
                                 "properties": {
@@ -324,6 +464,25 @@ def run_mcp():
                 except Exception as e:
                     tool_res = {"error": str(e)}
 
+            elif name == "waas_test_payload":
+                method = args.get("method", "GET")
+                uri = args.get("uri", "/")
+                hdrs = args.get("headers", {})
+                body = args.get("body")
+                req_obj = {
+                    "id": "ad-hoc-probe",
+                    "method": method,
+                    "uri": uri,
+                    "headers": hdrs,
+                    "request_body": body
+                }
+                violations = evaluate_traffic(req_obj, None)
+                tool_res = {
+                    "probe_uri": uri,
+                    "violations_detected": len(violations),
+                    "violations": violations
+                }
+
             elif name == "waas_detect_openapi_drift":
                 traffic_raw = args.get("traffic_json", "[]")
                 spec_raw = args.get("spec_json", "{}")
@@ -341,30 +500,29 @@ def run_mcp():
                 except Exception as e:
                     tool_res = {"error": str(e)}
 
-            elif name == "waas_synthesize_waf_rules":
+            elif name == "waas_synthesize_virtual_patches":
                 traffic_raw = args.get("traffic_json", "[]")
                 try:
                     traffic = json.loads(traffic_raw)
                     violations = []
                     for r in traffic:
                         violations.extend(evaluate_traffic(r, None))
-                    cf_expr, aws_group = synthesize_waf_rules(violations)
-                    tool_res = {
-                        "cloudflare_expression": cf_expr,
-                        "aws_waf_rule_json": aws_group
-                    }
+                    tool_res = synthesize_virtual_patches(violations)
                 except Exception as e:
                     tool_res = {"error": str(e)}
 
             else:
                 tool_res = {"error": f"Unknown tool: {name}"}
 
+            call_result = {
+                "content": [{"type": "text", "text": json.dumps(tool_res, indent=2)}]
+            }
+            if isinstance(tool_res, dict) and "error" in tool_res:
+                call_result["isError"] = True
             resp = {
                 "jsonrpc": "2.0",
                 "id": req_id,
-                "result": {
-                    "content": [{"type": "text", "text": json.dumps(tool_res, indent=2)}]
-                }
+                "result": call_result
             }
         else:
             resp = {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": "Method not found"}}
@@ -373,22 +531,23 @@ def run_mcp():
         sys.stdout.flush()
 
 def main():
-    parser = argparse.ArgumentParser(description="WaasSecure CLI: Web Application & API Security Engine")
+    parser = argparse.ArgumentParser(description="WaasSecure CLI: Web-App & API Security Engine")
     parser.add_argument("--mcp", action="store_true", help="Run Model Context Protocol stdio server")
     subparsers = parser.add_subparsers(dest="subcommand")
 
-    scan_p = subparsers.add_parser("scan", help="Inspect API traffic logs against OWASP API rules")
-    scan_p.add_argument("--traffic", "-t", required=True, help="Path to API traffic logs JSON")
-    scan_p.add_argument("--spec", "-s", help="Path to OpenAPI 3.x specification JSON")
-    scan_p.add_argument("--format", "-f", choices=["table", "json", "sarif", "csv"], default="table")
+    scan_p = subparsers.add_parser("scan", help="Scan API traffic records against OWASP Top 10 and OpenAPI spec")
+    scan_p.add_argument("--input", "-i", required=True, help="Path to API traffic JSON")
+    scan_p.add_argument("--spec", "-s", help="Path to OpenAPI spec JSON")
+    scan_p.add_argument("--format", "-f", choices=["table", "json", "sarif"], default="table")
 
-    drift_p = subparsers.add_parser("drift", help="Detect OpenAPI specification drift")
-    drift_p.add_argument("--traffic", "-t", required=True, help="Path to API traffic logs JSON")
-    drift_p.add_argument("--spec", "-s", required=True, help="Path to OpenAPI 3.x specification JSON")
+    probe_p = subparsers.add_parser("probe", help="Interactive payload probe tester")
+    probe_p.add_argument("--method", "-m", default="GET", help="HTTP Method")
+    probe_p.add_argument("--uri", "-u", required=True, help="Target URI path")
+    probe_p.add_argument("--body", "-b", help="Request body string")
 
-    waf_p = subparsers.add_parser("waf-rules", help="Synthesize Cloudflare and AWS WAF rules")
-    waf_p.add_argument("--traffic", "-t", required=True, help="Path to API traffic logs JSON")
-    waf_p.add_argument("--target", choices=["cloudflare", "aws", "all"], default="all")
+    patch_p = subparsers.add_parser("patch", help="Generate virtual patches for traffic violations")
+    patch_p.add_argument("--input", "-i", required=True, help="Path to API traffic JSON")
+    patch_p.add_argument("--format", "-f", choices=["cloudflare", "aws", "modsecurity", "envoy", "all"], default="all")
 
     args = parser.parse_args()
     if args.mcp:
@@ -396,31 +555,27 @@ def main():
         return
 
     if args.subcommand == "scan":
-        with open(args.traffic, "r", encoding="utf-8") as f:
+        with open(args.input, "r", encoding="utf-8") as f:
             traffic = json.load(f)
         spec = None
-        if args.spec:
+        if args.spec and os.path.exists(args.spec):
             with open(args.spec, "r", encoding="utf-8") as f:
                 spec = json.load(f)
 
-        all_violations = []
+        violations = []
         for r in traffic:
-            all_violations.extend(evaluate_traffic(r, spec))
+            violations.extend(evaluate_traffic(r, spec))
 
         if args.format == "table":
-            print(f"{'SEVERITY':<10} {'RULE ID':<12} {'ENDPOINT':<34} {'TITLE'}")
+            print(f"{'SEVERITY':<10} {'RULE ID':<12} {'METHOD':<8} {'ENDPOINT':<32} {'CATEGORY'}")
             print("-" * 105)
-            for v in all_violations:
-                glyph = "[!]" if v["severity"] == "CRITICAL" else "[/!\\]"
-                ep = f"{v['method']} {v['endpoint']}"
-                if len(ep) > 33:
-                    ep = ep[:30] + "..."
-                title = v["title"] if len(v["title"]) <= 45 else v["title"][:42] + "..."
-                print(f"{glyph + ' ' + v['severity']:<10} {v['rule_id']:<12} {ep:<34} {title}")
+            for v in violations:
+                glyph = "[!]" if v["severity"] == "CRITICAL" else "[*]"
+                print(f"{glyph + ' ' + v['severity']:<10} {v['rule_id']:<12} {v['method']:<8} {v['endpoint']:<32} {v['category']}")
             print("-" * 105)
-            print(f"Total OWASP API Security Findings: {len(all_violations)}")
+            print(f"Total API Security Violations: {len(violations)}")
         elif args.format == "json":
-            print(json.dumps(all_violations, indent=2))
+            print(json.dumps(violations, indent=2))
         elif args.format == "sarif":
             sarif = {
                 "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
@@ -431,52 +586,42 @@ def main():
                         "ruleId": v["rule_id"],
                         "level": "error" if v["severity"] == "CRITICAL" else "warning",
                         "message": {"text": v["title"]}
-                    } for v in all_violations]
+                    } for v in violations]
                 }]
             }
             print(json.dumps(sarif, indent=2))
-        elif args.format == "csv":
-            print("Severity,RuleId,Endpoint,Title,Message")
-            for v in all_violations:
-                print(f"{v['severity']},{v['rule_id']},{v['method']} {v['endpoint']},\"{v['title']}\",\"{v['message']}\"")
 
-        if any(v["severity"] == "CRITICAL" for v in all_violations):
-            sys.exit(1)
+    elif args.subcommand == "probe":
+        req_obj = {
+            "id": "probe-test",
+            "method": args.method,
+            "uri": args.uri,
+            "headers": {},
+            "request_body": args.body
+        }
+        violations = evaluate_traffic(req_obj, None)
+        print(f"Probing {args.method} {args.uri} -> Found {len(violations)} violations:")
+        for v in violations:
+            print(f"  [{v['severity']}] {v['rule_id']}: {v['title']} ({v['category']})")
 
-    elif args.subcommand == "drift":
-        with open(args.traffic, "r", encoding="utf-8") as f:
+    elif args.subcommand == "patch":
+        with open(args.input, "r", encoding="utf-8") as f:
             traffic = json.load(f)
-        with open(args.spec, "r", encoding="utf-8") as f:
-            spec = json.load(f)
-
-        all_violations = []
+        violations = []
         for r in traffic:
-            all_violations.extend(evaluate_traffic(r, spec))
-        drift = [v for v in all_violations if v["rule_id"] == "API9:2023"]
+            violations.extend(evaluate_traffic(r, None))
 
-        print(f"{'SEVERITY':<10} {'RULE ID':<12} {'ENDPOINT':<34} {'TITLE'}")
-        print("-" * 105)
-        for v in drift:
-            glyph = "[!]" if v["severity"] == "CRITICAL" else "[/!\\]"
-            ep = f"{v['method']} {v['endpoint']}"
-            print(f"{glyph + ' ' + v['severity']:<10} {v['rule_id']:<12} {ep:<34} {v['title']}")
-        print("-" * 105)
-        print(f"Total OpenAPI Drift Findings: {len(drift)}")
-
-    elif args.subcommand == "waf-rules":
-        with open(args.traffic, "r", encoding="utf-8") as f:
-            traffic = json.load(f)
-        all_violations = []
-        for r in traffic:
-            all_violations.extend(evaluate_traffic(r, None))
-        cf_expr, aws_group = synthesize_waf_rules(all_violations)
-
-        if args.target in ("cloudflare", "all"):
-            print("=== Cloudflare WAF Expression Ruleset ===")
-            print(f"{cf_expr}\n")
-        if args.target in ("aws", "all"):
-            print("=== AWS WAFv2 Rule Group (JSON) ===")
-            print(aws_group)
+        patches = synthesize_virtual_patches(violations)
+        if args.format == "cloudflare":
+            print(patches["cloudflare_wirefilter"])
+        elif args.format == "aws":
+            print(json.dumps(patches["aws_wafv2"], indent=2))
+        elif args.format == "modsecurity":
+            print(patches["modsecurity"])
+        elif args.format == "envoy":
+            print(json.dumps(patches["envoy"], indent=2))
+        else:
+            print(json.dumps(patches, indent=2))
 
     else:
         parser.print_help()

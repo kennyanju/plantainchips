@@ -148,6 +148,15 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
+  function escapeHtmlText(str) {
+    return String(str || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
   function executeRql(presetData) {
     if (!rqlOutput) return;
 
@@ -168,8 +177,8 @@ document.addEventListener('DOMContentLoaded', () => {
         rqlOutput.innerHTML = `
           <div class="state-box state-error">
             <div class="state-title">[!] QUERY EXECUTION FAILED</div>
-            <p class="state-desc">${presetData.error}</p>
-            <button class="btn btn-secondary btn-sm" onclick="document.getElementById('rql-editor-input').focus();">Edit Query</button>
+            <p class="state-desc">${escapeHtmlText(presetData.error)}</p>
+            <button class="btn btn-secondary btn-sm" id="rql-edit-focus-btn" type="button">Edit Query</button>
           </div>
         `;
         if (rqlStatus) {
@@ -197,11 +206,11 @@ document.addEventListener('DOMContentLoaded', () => {
       let rows = presetData.findings.map(f => `
         <tr>
           <td><span class="badge-sev ${f.badge}">${f.glyph} ${f.sev}</span></td>
-          <td style="font-family: var(--font-mono); font-size: 0.78rem; font-weight: 600;">${f.id}</td>
-          <td style="font-family: var(--font-mono); font-size: 0.78rem;">${f.res}</td>
-          <td>${f.desc}</td>
+          <td style="font-family: var(--font-mono); font-size: 0.78rem; font-weight: 600;">${escapeHtmlText(f.id)}</td>
+          <td style="font-family: var(--font-mono); font-size: 0.78rem;">${escapeHtmlText(f.res)}</td>
+          <td>${escapeHtmlText(f.desc)}</td>
           <td>
-            <button class="btn btn-secondary btn-sm copy-btn" data-copy="terraform fix: ${f.id} on ${f.res}">
+            <button class="btn btn-secondary btn-sm copy-btn" type="button" data-copy="${escapeHtmlText(`terraform fix: ${f.id} on ${f.res}`)}">
               Remediation
             </button>
           </td>
@@ -228,58 +237,144 @@ document.addEventListener('DOMContentLoaded', () => {
       if (rqlStatus) {
         rqlStatus.textContent = `Status: ${presetData.findings.length} findings (${presetData.time}) - Target: ${presetData.target}`;
       }
-
-      bindCopyButtons();
     }, 200);
+  }
+
+  function evaluateCustomRql(rawQuery) {
+    const parser = window.CloudSecureRql && window.CloudSecureRql.parseRqlToAst;
+    if (!parser) {
+      return rqlPresets.s3_public;
+    }
+
+    const ast = parser(rawQuery);
+    if (ast.status !== 'VALID') {
+      return {
+        query: rawQuery,
+        target: 'PolicySecure (RQL Parser)',
+        time: '2 ms',
+        error: ast.error || 'Invalid RQL query syntax.'
+      };
+    }
+
+    const q = rawQuery.toLowerCase();
+    const applyLimit = (preset) => {
+      if (ast.limit && ast.limit > 0 && Array.isArray(preset.findings)) {
+        return Object.assign({}, preset, { findings: preset.findings.slice(0, ast.limit) });
+      }
+      return preset;
+    };
+
+    if (ast.family === 'config') {
+      if (q.includes('gcp') || q.includes('compute.firewalls')) {
+        return applyLimit(rqlPresets.empty_example);
+      }
+      if (q.includes('aws-s3-bucket') || q.includes('restrictpublicbuckets') || q.includes('s3')) {
+        return applyLimit(rqlPresets.s3_public);
+      }
+    } else if (ast.family === 'iam') {
+      if (q.includes('role') || q.includes('iam:*') || q.includes('entitlements') || ast.predicates.length === 0) {
+        return applyLimit(rqlPresets.iam_admin);
+      }
+    } else if (ast.family === 'event') {
+      if (q.includes('sigstore') || q.includes('signature') || q.includes('artifact') || q.includes('build')) {
+        return applyLimit(rqlPresets.supply_unsigned);
+      }
+      if (q.includes('c2') || q.includes('egress') || q.includes('network')) {
+        return applyLimit(rqlPresets.threat_c2);
+      }
+      if (q.includes('workload') || q.includes('execve') || q.includes('uid') || ast.predicates.length === 0) {
+        return applyLimit(rqlPresets.container_root);
+      }
+    } else if (ast.family === 'data') {
+      if (q.includes('pii') || q.includes('pci') || q.includes('is_public') || ast.predicates.length === 0) {
+        return applyLimit(rqlPresets.pii_leak);
+      }
+    } else if (ast.family === 'ai') {
+      if (q.includes('prompt') || q.includes('jailbreak') || q.includes('guardrail') || ast.predicates.length === 0) {
+        return applyLimit(rqlPresets.ai_jailbreak);
+      }
+    } else if (ast.family === 'network') {
+      if (q.includes('vpc') || q.includes('tier') || q.includes('firewall') || ast.predicates.length === 0) {
+        return applyLimit(rqlPresets.net_cross_zone);
+      }
+    }
+
+    const familyLabels = {
+      config: 'PostureSecure (CSPM)',
+      iam: 'IdentitySecure (CIEM)',
+      event: 'WorkloadSecure & ThreatSecure',
+      data: 'DataSecure (DSPM)',
+      network: 'NetSecure (CNS)',
+      ai: 'AiSecure (AI-SPM)'
+    };
+
+    return {
+      query: rawQuery,
+      target: `${familyLabels[ast.family] || 'CloudSecure Engine'} [${ast.target}]`,
+      time: '14 ms',
+      findings: []
+    };
   }
 
   if (rqlRunBtn && rqlInput) {
     rqlRunBtn.addEventListener('click', () => {
-      const q = rqlInput.value.toLowerCase();
-      if (q.includes('error') || q.includes('%%%')) {
-        executeRql(rqlPresets.error_example);
-      } else if (q.includes('firewall') || q.includes('gcp')) {
-        executeRql(rqlPresets.empty_example);
-      } else if (q.includes('iam') || q.includes('role')) {
-        executeRql(rqlPresets.iam_admin);
-      } else if (q.includes('workload') || q.includes('execve')) {
-        executeRql(rqlPresets.container_root);
-      } else if (q.includes('data') || q.includes('pii')) {
-        executeRql(rqlPresets.pii_leak);
-      } else if (q.includes('ai') || q.includes('prompt') || q.includes('model')) {
-        executeRql(rqlPresets.ai_jailbreak);
-      } else if (q.includes('network') || q.includes('vpc') || q.includes('tier')) {
-        executeRql(rqlPresets.net_cross_zone);
-      } else if (q.includes('threat') || q.includes('c2') || q.includes('egress')) {
-        executeRql(rqlPresets.threat_c2);
-      } else if (q.includes('sigstore') || q.includes('signature') || q.includes('supply') || q.includes('artifact')) {
-        executeRql(rqlPresets.supply_unsigned);
-      } else {
-        executeRql(rqlPresets.s3_public);
-      }
+      executeRql(evaluateCustomRql(rqlInput.value));
     });
   }
 
-  // 3. Accessible Clipboard Copy
-  function bindCopyButtons() {
-    const copyBtns = document.querySelectorAll('.copy-btn');
-    copyBtns.forEach(btn => {
-      btn.addEventListener('click', () => {
-        const text = btn.getAttribute('data-copy');
-        if (text) {
-          navigator.clipboard.writeText(text).then(() => {
-            const originalText = btn.textContent;
-            btn.textContent = 'COPIED!';
-            btn.style.borderColor = 'var(--accent-ink)';
-            setTimeout(() => {
-              btn.textContent = originalText;
-              btn.style.borderColor = '';
-            }, 1800);
-          });
+  // 3. Accessible Clipboard Copy with Fallback (Single Delegated Listener)
+  function copyTextFallback(text) {
+    try {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.top = '0';
+      textarea.style.left = '0';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(textarea);
+      return ok;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function showCopiedFeedback(btn) {
+    const originalText = btn.textContent;
+    btn.textContent = 'COPIED!';
+    btn.style.borderColor = 'var(--accent-ink)';
+    setTimeout(() => {
+      btn.textContent = originalText;
+      btn.style.borderColor = '';
+    }, 1800);
+  }
+
+  document.addEventListener('click', (e) => {
+    const focusBtn = e.target.closest('#rql-edit-focus-btn');
+    if (focusBtn && rqlInput) {
+      rqlInput.focus();
+      return;
+    }
+
+    const copyBtn = e.target.closest('.copy-btn');
+    if (!copyBtn) return;
+
+    const text = copyBtn.getAttribute('data-copy');
+    if (!text) return;
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => {
+        showCopiedFeedback(copyBtn);
+      }).catch(() => {
+        if (copyTextFallback(text)) {
+          showCopiedFeedback(copyBtn);
         }
       });
-    });
-  }
-
-  bindCopyButtons();
+    } else if (copyTextFallback(text)) {
+      showCopiedFeedback(copyBtn);
+    }
+  });
 });

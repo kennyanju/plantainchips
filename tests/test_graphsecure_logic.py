@@ -61,6 +61,36 @@ class TestGraphSecureEngine(unittest.TestCase):
         reduction = (severed / len(initial_paths)) * 100.0
         self.assertEqual(reduction, 50.0)
 
+    def test_toxic_combination_templates(self):
+        all_paths = self.cli.find_attack_paths(self.graph)
+        self.assertEqual(len(all_paths), 8)
+
+        # Template 1: Internet -> CVE Workload -> Crown Jewel
+        cve_paths = self.cli.filter_paths_by_template(self.graph, all_paths, "internet-cve-crown-jewel")
+        self.assertEqual(len(cve_paths), 4)
+        for p in cve_paths:
+            self.assertIn("node-frontend-pod", p["hops"])
+
+        # Template 2: Container Escape -> IAM Admin
+        admin_paths = self.cli.filter_paths_by_template(self.graph, all_paths, "container-escape-iam-admin")
+        self.assertEqual(len(admin_paths), 2)
+        for p in admin_paths:
+            self.assertIn("node-frontend-pod", p["hops"])
+            self.assertIn("node-iam-role-admin", p["hops"])
+
+        # Template 3: Cross-Account Role -> Sensitive Data
+        sensitive_paths = self.cli.filter_paths_by_template(self.graph, all_paths, "cross-account-sensitive-data")
+        self.assertEqual(len(sensitive_paths), 8)
+
+    def test_choke_point_hcl_remediation(self):
+        paths = self.cli.find_attack_paths(self.graph)
+        choke_points = self.cli.compute_choke_points(self.graph, paths)
+        self.assertTrue(len(choke_points) > 0)
+        for cp in choke_points:
+            self.assertIn("remediation_hcl", cp)
+            self.assertTrue(len(cp["remediation_hcl"]) > 0)
+            self.assertTrue(cp["paths_severed_count"] >= 1)
+
     def test_graph_state_hash_determinism(self):
         s1 = json.dumps(self.graph, sort_keys=True)
         s2 = json.dumps(self.graph, sort_keys=True)

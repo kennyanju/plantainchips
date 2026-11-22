@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import sys, os, json, argparse
+import sys, os, json, argparse, hashlib, datetime, re
 
 KNOWN_VULNS = [
     {
@@ -9,6 +9,8 @@ KNOWN_VULNS = [
         "fixed_version": "27.1.1",
         "severity": "CRITICAL",
         "cvss": 10.0,
+        "epss": 0.94,
+        "cisa_kev": True,
         "title": "Docker Engine Authorization Bypass",
         "description": "Bypass of AuthZ plugins enabling privilege escalation to host root."
     },
@@ -19,6 +21,8 @@ KNOWN_VULNS = [
         "fixed_version": "3.0.10",
         "severity": "MEDIUM",
         "cvss": 5.3,
+        "epss": 0.12,
+        "cisa_kev": False,
         "title": "OpenSSL Excessive DH Parameter Computation Denial of Service",
         "description": "Flaw in DH_check() triggers CPU exhaustion upon parsing crafted parameters."
     },
@@ -29,36 +33,275 @@ KNOWN_VULNS = [
         "fixed_version": "1.26.0",
         "severity": "HIGH",
         "cvss": 7.5,
+        "epss": 0.88,
+        "cisa_kev": True,
         "title": "HTTP/2 Rapid Reset Stream Cancellation Exhaustion",
         "description": "Flooding RST_STREAM frames induces severe resource exhaustion on HTTP/2 servers."
+    },
+    {
+        "cve_id": "CVE-2024-3094",
+        "package_name": "xz-utils",
+        "match_version": lambda v: v.startswith(("5.6.0", "5.6.1")),
+        "fixed_version": "5.6.2",
+        "severity": "CRITICAL",
+        "cvss": 10.0,
+        "epss": 0.96,
+        "cisa_kev": True,
+        "title": "XZ Utils Malicious SSH Authentication Bypass Backdoor",
+        "description": "Supply chain backdoor inserted in upstream xz tarballs targeting sshd."
+    },
+    {
+        "cve_id": "CVE-2024-21626",
+        "package_name": "runc",
+        "match_version": lambda v: v.startswith("1.1.") and int(v.split(".")[2].split("-")[0]) <= 11,
+        "fixed_version": "1.1.12",
+        "severity": "HIGH",
+        "cvss": 8.6,
+        "epss": 0.82,
+        "cisa_kev": True,
+        "title": "runc Leaky Vessels Container Breakout to Host Filesystem",
+        "description": "Internal file descriptor leak enables container processes to overwrite host binaries."
+    },
+    {
+        "cve_id": "CVE-2021-44228",
+        "package_name": "log4j-core",
+        "match_version": lambda v: v.startswith("2.") and not v.startswith("2.17"),
+        "fixed_version": "2.17.1",
+        "severity": "CRITICAL",
+        "cvss": 10.0,
+        "epss": 0.98,
+        "cisa_kev": True,
+        "title": "Apache Log4j2 JNDI Remote Code Execution (Log4Shell)",
+        "description": "JNDI features used in configuration or log messages allow remote arbitrary code execution."
+    },
+    {
+        "cve_id": "CVE-2023-4863",
+        "package_name": "libwebp",
+        "match_version": lambda v: v.startswith("1.3.") and v < "1.3.2",
+        "fixed_version": "1.3.2",
+        "severity": "CRITICAL",
+        "cvss": 8.8,
+        "epss": 0.90,
+        "cisa_kev": True,
+        "title": "libwebp Heap Buffer Overflow via Lossless Compression",
+        "description": "Out-of-bounds write in BuildHuffmanTable enables arbitrary code execution."
+    },
+    {
+        "cve_id": "CVE-2023-4911",
+        "package_name": "glibc",
+        "match_version": lambda v: v.startswith("2.35") or v.startswith("2.36"),
+        "fixed_version": "2.37",
+        "severity": "HIGH",
+        "cvss": 7.8,
+        "epss": 0.75,
+        "cisa_kev": True,
+        "title": "glibc ld.so Looney Tunables Local Privilege Escalation",
+        "description": "Buffer overflow in the dynamic loader's processing of GLIBC_TUNABLES environment variable."
+    },
+    {
+        "cve_id": "CVE-2022-0847",
+        "package_name": "linux-kernel",
+        "match_version": lambda v: v.startswith("5.10.") and int(v.split(".")[2]) < 102,
+        "fixed_version": "5.10.102",
+        "severity": "HIGH",
+        "cvss": 7.8,
+        "epss": 0.85,
+        "cisa_kev": True,
+        "title": "Linux Kernel Dirty Pipe Arbitrary File Overwrite",
+        "description": "Flaw in pipe buffer flags allows unprivileged overwrite of read-only cached page data."
+    },
+    {
+        "cve_id": "CVE-2021-3156",
+        "package_name": "sudo",
+        "match_version": lambda v: v.startswith("1.8.") or (v.startswith("1.9.") and v < "1.9.5p2"),
+        "fixed_version": "1.9.5p2",
+        "severity": "HIGH",
+        "cvss": 7.8,
+        "epss": 0.82,
+        "cisa_kev": True,
+        "title": "Sudo Baron Samedit Heap-Based Buffer Overflow",
+        "description": "Heap buffer overflow allows any local user to gain root privileges without password."
+    },
+    {
+        "cve_id": "CVE-2022-42889",
+        "package_name": "commons-text",
+        "match_version": lambda v: v in ("1.5", "1.6", "1.7", "1.8", "1.9"),
+        "fixed_version": "1.10.0",
+        "severity": "CRITICAL",
+        "cvss": 9.8,
+        "epss": 0.70,
+        "cisa_kev": False,
+        "title": "Apache Commons Text Remote Code Execution (Text4Shell)",
+        "description": "Variable interpolation allows script, dns, and url lookup remote code execution."
+    },
+    {
+        "cve_id": "CVE-2024-23897",
+        "package_name": "jenkins",
+        "match_version": lambda v: v.startswith("2.441") or v.startswith("2.426"),
+        "fixed_version": "2.442",
+        "severity": "CRITICAL",
+        "cvss": 9.8,
+        "epss": 0.85,
+        "cisa_kev": True,
+        "title": "Jenkins CLI Arbitrary File Read through args4j Parser",
+        "description": "args4j expandAtFiles feature enables unauthenticated attackers to read files on Jenkins controller."
+    },
+    {
+        "cve_id": "CVE-2023-2650",
+        "package_name": "openssl",
+        "match_version": lambda v: v.startswith("3.0.") and v < "3.0.9",
+        "fixed_version": "3.0.9",
+        "severity": "HIGH",
+        "cvss": 7.5,
+        "epss": 0.35,
+        "cisa_kev": False,
+        "title": "OpenSSL Excessive Time Processing ASN.1 Object Identifiers",
+        "description": "Parsing OBJ_obj2txt triggers severe polynomial latency and Denial of Service."
+    },
+    {
+        "cve_id": "CVE-2023-3269",
+        "package_name": "linux-kernel",
+        "match_version": lambda v: v.startswith("6.1.") and int(v.split(".")[2]) < 37,
+        "fixed_version": "6.1.37",
+        "severity": "HIGH",
+        "cvss": 7.8,
+        "epss": 0.40,
+        "cisa_kev": False,
+        "title": "Linux Kernel StackRot Privilege Escalation in Maple Tree",
+        "description": "Use-after-free vulnerability in maple tree VMA management leads to root privilege escalation."
+    },
+    {
+        "cve_id": "CVE-2023-29491",
+        "package_name": "ncurses",
+        "match_version": lambda v: v.startswith("6.4") and v < "6.4.20230527",
+        "fixed_version": "6.4.20230527",
+        "severity": "HIGH",
+        "cvss": 7.8,
+        "epss": 0.20,
+        "cisa_kev": False,
+        "title": "ncurses Heap Buffer Overflow in set_curterm",
+        "description": "Environment variable terminfo parameter parsing flaw allows local privilege escalation."
     }
 ]
 
 def scan_image(image):
     findings = []
-    for layer in image.get("layers", []):
+    layers = image.get("layers", [])
+    for layer in layers:
         l_idx = layer.get("layer_index", 0)
+        # Check secrets leaked in layers
+        for s in layer.get("secrets_leaked", []):
+            findings.append({
+                "type": "SECRET_LEAK",
+                "cve_id": "LAYER-SECRET-001",
+                "package_name": "hardcoded_secret",
+                "installed_version": "embedded",
+                "fixed_version": "Remove from Dockerfile RUN layer",
+                "severity": "CRITICAL",
+                "cvss_score": 9.5,
+                "epss_score": 0.90,
+                "introduced_in_layer_index": l_idx,
+                "title": "Hardcoded Secret Token Leaked in Image Layer",
+                "description": f"Sensitive secret token '{s[:4]}-****' was written into layer {l_idx} history."
+            })
+
         for pkg in layer.get("packages", []):
             p_name = pkg.get("name")
             p_ver = pkg.get("version", "")
             for rule in KNOWN_VULNS:
                 if rule["package_name"] == p_name and rule["match_version"](p_ver):
                     findings.append({
+                        "type": "VULNERABILITY",
                         "cve_id": rule["cve_id"],
                         "package_name": p_name,
                         "installed_version": p_ver,
                         "fixed_version": rule["fixed_version"],
                         "severity": rule["severity"],
                         "cvss_score": rule["cvss"],
+                        "epss_score": rule.get("epss", 0.0),
+                        "cisa_kev": rule.get("cisa_kev", False),
                         "introduced_in_layer_index": l_idx,
                         "title": rule["title"],
                         "description": rule["description"]
                     })
     return findings
 
+def audit_pod_security(pod_spec):
+    violations = []
+    spec = pod_spec.get("spec", pod_spec)
+
+    # 1. Host namespace sharing
+    if spec.get("hostNetwork", False):
+        violations.append({
+            "rule_id": "PSS-HOST-NETWORK",
+            "severity": "HIGH",
+            "title": "Pod Enables Host Network Namespace",
+            "description": "Pod shares the host network namespace, bypassing network security boundaries."
+        })
+    if spec.get("hostPID", False):
+        violations.append({
+            "rule_id": "PSS-HOST-PID",
+            "severity": "HIGH",
+            "title": "Pod Enables Host Process ID Namespace",
+            "description": "Pod shares host PID namespace, exposing all host processes to container inspection."
+        })
+
+    # 2. Container level audits
+    containers = spec.get("containers", [])
+    for c in containers:
+        c_name = c.get("name", "container")
+        sc = c.get("securityContext", {})
+        if sc.get("privileged", False):
+            violations.append({
+                "rule_id": "PSS-PRIVILEGED",
+                "container_name": c_name,
+                "severity": "CRITICAL",
+                "title": "Container Running in Privileged Mode",
+                "description": f"Container '{c_name}' has privileged=true, granting direct access to all host devices."
+            })
+        if sc.get("runAsUser") == 0 or sc.get("runAsNonRoot") is False:
+            violations.append({
+                "rule_id": "PSS-ROOT-USER",
+                "container_name": c_name,
+                "severity": "HIGH",
+                "title": "Container Executing as Root UID 0",
+                "description": f"Container '{c_name}' does not enforce runAsNonRoot."
+            })
+        if not sc.get("readOnlyRootFilesystem", False):
+            violations.append({
+                "rule_id": "PSS-WRITABLE-ROOTFS",
+                "container_name": c_name,
+                "severity": "MEDIUM",
+                "title": "Missing Read-Only Root Filesystem",
+                "description": f"Container '{c_name}' has a writable root filesystem."
+            })
+        caps = sc.get("capabilities", {}).get("add", [])
+        if "CAP_SYS_ADMIN" in caps or "SYS_ADMIN" in caps:
+            violations.append({
+                "rule_id": "PSS-DANGEROUS-CAP",
+                "container_name": c_name,
+                "severity": "CRITICAL",
+                "title": "Dangerous Capability CAP_SYS_ADMIN Granted",
+                "description": f"Container '{c_name}' requested CAP_SYS_ADMIN, nearly equivalent to root breakout."
+            })
+
+    # 3. Volume mounts check for docker.sock
+    for v in spec.get("volumes", []):
+        hp = v.get("hostPath", {}).get("path", "")
+        if "docker.sock" in hp:
+            violations.append({
+                "rule_id": "PSS-DOCKER-SOCK-MOUNT",
+                "severity": "CRITICAL",
+                "title": "Docker Socket Mounted from Host",
+                "description": f"Volume '{v.get('name')}' mounts '{hp}', enabling complete host takeover."
+            })
+
+    return violations
+
 def evaluate_runtime_event(ev):
     anomalies = []
     proc = ev.get("process_executable", "")
+    args = " ".join(ev.get("process_args", []))
     parent = ev.get("parent_process", "")
     syscall = ev.get("syscall", "")
     cid = ev.get("container_id", "container")
@@ -86,7 +329,7 @@ def evaluate_runtime_event(ev):
         })
 
     # Rule 3: Escape syscall
-    if syscall in ["ptrace", "reboot", "setns"]:
+    if syscall in ["ptrace", "reboot", "setns", "unshare", "mount"]:
         anomalies.append({
             "anomaly_id": f"ANOM-SYS-{ev.get('event_id')}",
             "rule_id": "CWPP-RT-003",
@@ -96,10 +339,32 @@ def evaluate_runtime_event(ev):
             "container_id": cid
         })
 
+    # Rule 4: Cryptomining activity
+    if any(m in proc or m in args for m in ["xmrig", "minerd", "stratum+tcp", "hashvault"]):
+        anomalies.append({
+            "anomaly_id": f"ANOM-MINER-{ev.get('event_id')}",
+            "rule_id": "CWPP-RT-004",
+            "severity": "CRITICAL",
+            "title": "Cryptomining Process or Pool Connection Detected",
+            "description": f"Cryptominer execution '{proc}' ({args}) observed in container '{cid}'.",
+            "container_id": cid
+        })
+
+    # Rule 5: Sensitive system file access
+    if any(f in args for f in ["/etc/shadow", "/proc/kcore", "serviceaccount/token"]):
+        anomalies.append({
+            "anomaly_id": f"ANOM-FILE-{ev.get('event_id')}",
+            "rule_id": "CWPP-RT-005",
+            "severity": "HIGH",
+            "title": "Unauthorized Access to Sensitive Credential Files",
+            "description": f"Process '{proc}' attempted access to sensitive host/k8s credential files: '{args}'.",
+            "container_id": cid
+        })
+
     return anomalies
 
-def synthesize_hardening_yaml(cname):
-    return f"""# Hardened Kubernetes SecurityContext for {cname}
+def synthesize_hardening_yaml(container_name):
+    return f"""# Hardened Kubernetes SecurityContext for {container_name}
 securityContext:
   allowPrivilegeEscalation: false
   readOnlyRootFilesystem: true
@@ -113,6 +378,23 @@ securityContext:
   seccompProfile:
     type: RuntimeDefault"""
 
+def synthesize_seccomp_profile():
+    return {
+        "defaultAction": "SCMP_ACT_ERRNO",
+        "architectures": ["SCMP_ARCH_X86_64", "SCMP_ARCH_AARCH64"],
+        "syscalls": [
+            {
+                "names": [
+                    "accept4", "bind", "clone", "close", "epoll_create1", "epoll_ctl",
+                    "epoll_pwait", "exit_group", "futex", "getpid", "getuid", "listen",
+                    "nanosleep", "read", "recvfrom", "rt_sigaction", "rt_sigprocmask",
+                    "sendto", "socket", "write"
+                ],
+                "action": "SCMP_ACT_ALLOW"
+            }
+        ]
+    }
+
 def run_mcp():
     for line in sys.stdin:
         if not line.strip():
@@ -123,7 +405,11 @@ def run_mcp():
             continue
         req_id = req.get("id")
         method = req.get("method")
-        
+
+        if req_id is None:
+            # JSON-RPC / MCP notifications do not have an ID and must not receive a response
+            continue
+
         if method == "initialize":
             resp = {
                 "jsonrpc": "2.0",
@@ -141,8 +427,8 @@ def run_mcp():
                 "result": {
                     "tools": [
                         {
-                            "name": "cwpp_scan_oci_image",
-                            "description": "Scan OCI/Docker container image layers for package CVEs and leaked secrets",
+                            "name": "workload_scan_image",
+                            "description": "Inspect OCI container image layers and match against 15+ CVEs with layer attribution",
                             "inputSchema": {
                                 "type": "object",
                                 "properties": {"image_json": {"type": "string"}},
@@ -150,21 +436,30 @@ def run_mcp():
                             }
                         },
                         {
-                            "name": "cwpp_analyze_runtime_events",
-                            "description": "Analyze container runtime syscall and process execution event stream",
+                            "name": "workload_audit_pod_security",
+                            "description": "Audit Kubernetes Pod spec against Pod Security Standards",
                             "inputSchema": {
                                 "type": "object",
-                                "properties": {"events_json": {"type": "string"}},
-                                "required": ["events_json"]
+                                "properties": {"pod_json": {"type": "string"}},
+                                "required": ["pod_json"]
                             }
                         },
                         {
-                            "name": "cwpp_generate_seccomp_profile",
-                            "description": "Generate hardened Kubernetes SecurityContext and SeccompProfile YAML for a workload",
+                            "name": "workload_evaluate_runtime_event",
+                            "description": "Evaluate container eBPF runtime events against Falco behavioral detection rules",
                             "inputSchema": {
                                 "type": "object",
-                                "properties": {"workload_name": {"type": "string"}},
-                                "required": ["workload_name"]
+                                "properties": {"event_json": {"type": "string"}},
+                                "required": ["event_json"]
+                            }
+                        },
+                        {
+                            "name": "workload_synthesize_hardening",
+                            "description": "Generate hardened Kubernetes SecurityContext and Linux Seccomp profile",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {"container_name": {"type": "string"}},
+                                "required": ["container_name"]
                             }
                         }
                     ]
@@ -174,49 +469,48 @@ def run_mcp():
             params = req.get("params", {})
             name = params.get("name")
             args = params.get("arguments", {})
-            if name == "cwpp_scan_oci_image":
-                raw_json = args.get("image_json", "[]")
+            if name == "workload_scan_image":
+                raw_json = args.get("image_json", "{}")
                 try:
-                    images = json.loads(raw_json)
-                    all_vulns = []
-                    for img in images:
-                        all_vulns.extend(scan_image(img))
-                    tool_res = {
-                        "images_scanned": len(images),
-                        "vulnerabilities_count": len(all_vulns),
-                        "vulnerabilities": all_vulns
-                    }
+                    img = json.loads(raw_json)
+                    vulns = scan_image(img)
+                    tool_res = {"vulnerabilities_count": len(vulns), "vulnerabilities": vulns}
                 except Exception as e:
                     tool_res = {"error": str(e)}
-            elif name == "cwpp_analyze_runtime_events":
-                raw_json = args.get("events_json", "[]")
+            elif name == "workload_audit_pod_security":
+                raw_json = args.get("pod_json", "{}")
                 try:
-                    events = json.loads(raw_json)
-                    all_anoms = []
-                    for ev in events:
-                        all_anoms.extend(evaluate_runtime_event(ev))
-                    tool_res = {
-                        "events_analyzed": len(events),
-                        "anomalies_count": len(all_anoms),
-                        "anomalies": all_anoms
-                    }
+                    pod = json.loads(raw_json)
+                    violations = audit_pod_security(pod)
+                    tool_res = {"violations_count": len(violations), "violations": violations}
                 except Exception as e:
                     tool_res = {"error": str(e)}
-            elif name == "cwpp_generate_seccomp_profile":
-                w_name = args.get("workload_name", "workload")
+            elif name == "workload_evaluate_runtime_event":
+                raw_json = args.get("event_json", "{}")
+                try:
+                    ev = json.loads(raw_json)
+                    anomalies = evaluate_runtime_event(ev)
+                    tool_res = {"anomalies_count": len(anomalies), "anomalies": anomalies}
+                except Exception as e:
+                    tool_res = {"error": str(e)}
+            elif name == "workload_synthesize_hardening":
+                cname = args.get("container_name", "app")
                 tool_res = {
-                    "workload_name": w_name,
-                    "kubernetes_yaml": synthesize_hardening_yaml(w_name)
+                    "kubernetes_security_context": synthesize_hardening_yaml(cname),
+                    "linux_seccomp_profile": synthesize_seccomp_profile()
                 }
             else:
                 tool_res = {"error": f"Unknown tool: {name}"}
 
+            call_result = {
+                "content": [{"type": "text", "text": json.dumps(tool_res, indent=2)}]
+            }
+            if isinstance(tool_res, dict) and "error" in tool_res:
+                call_result["isError"] = True
             resp = {
                 "jsonrpc": "2.0",
                 "id": req_id,
-                "result": {
-                    "content": [{"type": "text", "text": json.dumps(tool_res, indent=2)}]
-                }
+                "result": call_result
             }
         else:
             resp = {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": "Method not found"}}
@@ -225,20 +519,22 @@ def run_mcp():
         sys.stdout.flush()
 
 def main():
-    parser = argparse.ArgumentParser(description="WorkloadSecure CLI: CWPP Container X-Ray & Runtime Protection")
+    parser = argparse.ArgumentParser(description="WorkloadSecure CLI: CWPP Container Image & Runtime Engine")
     parser.add_argument("--mcp", action="store_true", help="Run Model Context Protocol stdio server")
     subparsers = parser.add_subparsers(dest="subcommand")
 
-    scan_p = subparsers.add_parser("scan", help="Scan container images for vulnerabilities")
+    scan_p = subparsers.add_parser("scan", help="Scan container image manifest for CVEs and layer secrets")
     scan_p.add_argument("--input", "-i", required=True, help="Path to container image JSON")
-    scan_p.add_argument("--format", "-f", choices=["table", "json", "sarif", "csv"], default="table")
+    scan_p.add_argument("--format", "-f", choices=["table", "json", "sarif"], default="table")
 
-    rt_p = subparsers.add_parser("runtime", help="Analyze container runtime event stream")
-    rt_p.add_argument("--events", "-e", required=True, help="Path to runtime events JSON")
-    rt_p.add_argument("--format", "-f", choices=["table", "json", "csv"], default="table")
+    pod_p = subparsers.add_parser("pod-audit", help="Audit Kubernetes Pod security spec")
+    pod_p.add_argument("--input", "-i", required=True, help="Path to pod spec JSON")
 
-    hard_p = subparsers.add_parser("harden", help="Synthesize hardened Kubernetes securityContext YAML")
-    hard_p.add_argument("--container-name", "-n", default="workload", help="Workload name")
+    runtime_p = subparsers.add_parser("runtime", help="Analyze runtime event stream for anomalies")
+    runtime_p.add_argument("--input", "-i", required=True, help="Path to runtime events JSON")
+
+    harden_p = subparsers.add_parser("harden", help="Generate Kubernetes SecurityContext and Seccomp profiles")
+    harden_p.add_argument("--name", "-n", default="workload", help="Container or workload name")
 
     args = parser.parse_args()
     if args.mcp:
@@ -247,20 +543,21 @@ def main():
 
     if args.subcommand == "scan":
         with open(args.input, "r", encoding="utf-8") as f:
-            images = json.load(f)
+            data = json.load(f)
+        images = data if isinstance(data, list) else [data]
         all_vulns = []
         for img in images:
-            all_vulns.extend(scan_image(img))
+            vulns = scan_image(img)
+            all_vulns.extend(vulns)
 
         if args.format == "table":
-            print(f"{'SEVERITY':<10} {'CVE ID':<18} {'PACKAGE':<16} {'VERSION':<12} {'CVSS':<6} {'LAYER':<6} {'TITLE'}")
+            print(f"{'SEVERITY':<10} {'CVE ID':<18} {'PACKAGE':<18} {'LAYER':<8} {'TITLE'}")
             print("-" * 105)
             for v in all_vulns:
-                glyph = "[!]" if v["severity"] == "CRITICAL" else "[/!\\]"
-                title = v["title"] if len(v["title"]) <= 30 else v["title"][:27] + "..."
-                print(f"{glyph + ' ' + v['severity']:<10} {v['cve_id']:<18} {v['package_name']:<16} {v['installed_version']:<12} {v['cvss_score']:<6.1f} L{v['introduced_in_layer_index']:<5} {title}")
+                glyph = "[!]" if v["severity"] == "CRITICAL" else "[*]"
+                print(f"{glyph + ' ' + v['severity']:<10} {v['cve_id']:<18} {v['package_name']:<18} {str(v['introduced_in_layer_index']):<8} {v['title']}")
             print("-" * 105)
-            print(f"Total CVE Vulnerabilities: {len(all_vulns)}")
+            print(f"Total Findings: {len(all_vulns)}")
         elif args.format == "json":
             print(json.dumps(all_vulns, indent=2))
         elif args.format == "sarif":
@@ -277,40 +574,32 @@ def main():
                 }]
             }
             print(json.dumps(sarif, indent=2))
-        elif args.format == "csv":
-            print("Severity,CveId,Package,Version,FixedVersion,Cvss,LayerIndex,Title")
-            for v in all_vulns:
-                print(f"{v['severity']},{v['cve_id']},{v['package_name']},{v['installed_version']},{v['fixed_version']},{v['cvss_score']:.1f},{v['introduced_in_layer_index']},\"{v['title']}\"")
-        if any(v["severity"] == "CRITICAL" for v in all_vulns):
-            sys.exit(1)
+
+    elif args.subcommand == "pod-audit":
+        with open(args.input, "r", encoding="utf-8") as f:
+            pod_data = json.load(f)
+        violations = audit_pod_security(pod_data)
+        print(f"Pod Security Violations ({len(violations)}):")
+        for v in violations:
+            print(f"  [{v['severity']}] {v['rule_id']}: {v['title']} - {v['description']}")
 
     elif args.subcommand == "runtime":
-        with open(args.events, "r", encoding="utf-8") as f:
+        with open(args.input, "r", encoding="utf-8") as f:
             events = json.load(f)
-        all_anoms = []
-        for ev in events:
-            all_anoms.extend(evaluate_runtime_event(ev))
-
-        if args.format == "table":
-            print(f"{'SEVERITY':<10} {'RULE ID':<14} {'CONTAINER ID':<24} {'ANOMALY TITLE'}")
-            print("-" * 95)
-            for a in all_anoms:
-                glyph = "[!]" if a["severity"] == "CRITICAL" else "[/!\\]"
-                title = a["title"] if len(a["title"]) <= 40 else a["title"][:37] + "..."
-                print(f"{glyph + ' ' + a['severity']:<10} {a['rule_id']:<14} {a['container_id']:<24} {title}")
-            print("-" * 95)
-            print(f"Total Runtime Behavioral Anomalies: {len(all_anoms)}")
-        elif args.format == "json":
-            print(json.dumps(all_anoms, indent=2))
-        elif args.format == "csv":
-            print("Severity,RuleId,ContainerId,Title,Description")
-            for a in all_anoms:
-                print(f"{a['severity']},{a['rule_id']},{a['container_id']},\"{a['title']}\",\"{a['description']}\"")
-        if any(a["severity"] == "CRITICAL" for a in all_anoms):
-            sys.exit(1)
+        ev_list = events if isinstance(events, list) else [events]
+        anomalies = []
+        for ev in ev_list:
+            anomalies.extend(evaluate_runtime_event(ev))
+        print(f"Runtime Behavioral Anomalies ({len(anomalies)}):")
+        for a in anomalies:
+            print(f"  [{a['severity']}] {a['rule_id']}: {a['title']} (Container: {a['container_id']})")
 
     elif args.subcommand == "harden":
-        print(synthesize_hardening_yaml(args.container_name))
+        yaml_out = synthesize_hardening_yaml(args.name)
+        seccomp_out = synthesize_seccomp_profile()
+        print(f"--- Hardened Kubernetes SecurityContext ---\n{yaml_out}\n")
+        print(f"--- Linux Seccomp Profile JSON ---\n{json.dumps(seccomp_out, indent=2)}")
+
     else:
         parser.print_help()
 

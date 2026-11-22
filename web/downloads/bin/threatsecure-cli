@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-import sys, os, json, argparse, hashlib
+import sys, os, json, argparse, hashlib, re, datetime
 
 def principal_identifier(event):
+    # AWS CloudTrail
     u = event.get("user_identity", {})
     if u:
         if u.get("arn"):
@@ -10,26 +11,42 @@ def principal_identifier(event):
             return u["user_name"]
         if u.get("principal_id"):
             return u["principal_id"]
+
+    # GCP Audit Log
+    proto = event.get("protoPayload", {})
+    auth_info = proto.get("authenticationInfo", {})
+    if auth_info.get("principalEmail"):
+        return auth_info["principalEmail"]
+
+    # Azure Activity Log
+    if event.get("caller"):
+        return event["caller"]
+
+    # Kubernetes Audit
+    k8s_user = event.get("user", {})
+    if k8s_user.get("username"):
+        return k8s_user["username"]
+
     return event.get("source_ip_address", "unknown")
 
 def evaluate_event(event):
     detections = []
     principal = principal_identifier(event)
-    src_ip = event.get("source_ip_address", "127.0.0.1")
-    ev_time = event.get("event_time", "")
-    ev_name = event.get("event_name", "")
-    ev_id = event.get("event_id", "")
-    req_params = event.get("request_parameters") or {}
-    resp_elements = event.get("response_elements") or {}
+    src_ip = event.get("source_ip_address") or event.get("sourceIPAddress") or event.get("callerIpAddress") or "127.0.0.1"
+    ev_time = event.get("event_time") or event.get("eventTime") or event.get("timestamp") or ""
+    ev_name = event.get("event_name") or event.get("eventName") or event.get("protoPayload", {}).get("methodName") or ""
+    ev_id = event.get("event_id") or event.get("eventID") or event.get("insertId") or hashlib.sha256(f"{ev_time}:{ev_name}".encode()).hexdigest()[:12]
+    req_params = event.get("request_parameters") or event.get("requestParameters") or event.get("protoPayload", {}).get("request") or {}
+    resp_elements = event.get("response_elements") or event.get("responseElements") or event.get("protoPayload", {}).get("response") or {}
 
     params_str = json.dumps(req_params)
     resp_str = json.dumps(resp_elements)
 
-    # 1. T1562.008 Impair Defenses: Disable Cloud Logs (TA0005 Defense Evasion)
-    if ev_name in ("StopLogging", "DeleteTrail", "DeleteDetector") or (
+    # 1. T1562.008 Impair Defenses: Disable Cloud Logs (Defense Evasion)
+    if ev_name in ("StopLogging", "DeleteTrail", "DeleteDetector", "DeleteFlowLogs") or (
         ev_name == "UpdateTrail" and '"isMultiRegionTrail": false' in params_str
     ):
-        trail_name = req_params.get("name") or req_params.get("trailName") or "arn:aws:cloudtrail:us-east-1:123456789012:trail/main"
+        trail_name = req_params.get("name") or req_params.get("trailName") or "main-trail"
         detections.append({
             "detection_id": f"DET-{ev_id}",
             "event_id": ev_id,
@@ -47,7 +64,7 @@ def evaluate_event(event):
             "containment_action": f"aws cloudtrail start-logging --name {trail_name}"
         })
 
-    # 2. T1098.001 Account Manipulation: Additional Cloud Credentials (TA0003 Persistence)
+    # 2. T1098.001 Account Manipulation: Additional Cloud Credentials (Persistence)
     if ev_name == "CreateAccessKey":
         target_user = req_params.get("userName", "unknown")
         detections.append({
@@ -67,7 +84,7 @@ def evaluate_event(event):
             "containment_action": f"aws iam update-access-key --user-name {target_user} --status Inactive"
         })
 
-    # 3. T1098 Account Manipulation: Administrator Privilege Grant (TA0004 Privilege Escalation)
+    # 3. T1098 Account Manipulation: Administrator Privilege Grant (Privilege Escalation)
     if ev_name in ("AttachUserPolicy", "AttachRolePolicy", "PutUserPolicy", "PutRolePolicy"):
         if "AdministratorAccess" in params_str or '"*"' in params_str:
             detections.append({
@@ -87,10 +104,10 @@ def evaluate_event(event):
                 "containment_action": "aws iam put-user-policy --policy-name DenyAll --policy-document '{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Deny\",\"Action\":\"*\",\"Resource\":\"*\"}]}'"
             })
 
-    # 4. T1078.004 Valid Accounts: Cloud Accounts (TA0001 Initial Access)
+    # 4. T1078.004 Valid Accounts: Cloud Accounts (Initial Access)
     if ev_name == "ConsoleLogin":
-        mfa_success = resp_elements.get("ConsoleLogin") == "Success"
-        is_mfa_no = '"MFAUsed": "No"' in params_str or '"mfa": false' in params_str or '"MFAUsed":"No"' in params_str
+        mfa_success = resp_elements.get("ConsoleLogin") == "Success" or "Success" in resp_str
+        is_mfa_no = '"MFAUsed": "No"' in params_str or '"mfa": false' in params_str or '"MFAUsed":"No"' in params_str or '"MFAUsed": "No"' in resp_str
         if mfa_success and is_mfa_no:
             detections.append({
                 "detection_id": f"DET-{ev_id}",
@@ -100,37 +117,60 @@ def evaluate_event(event):
                 "technique_name": "Valid Accounts: Cloud Accounts",
                 "tactic": "Initial Access",
                 "severity": "HIGH",
-                "title": "Console Login Succeeded Without Multi-Factor Authentication (MFA)",
-                "description": f"Console session established for '{principal}' from '{src_ip}' without requiring MFA verification.",
+                "title": "Console Login Successful Without MFA",
+                "description": f"Principal '{principal}' logged into the AWS Management Console from IP {src_ip} without Multi-Factor Authentication.",
                 "principal_arn": principal,
                 "source_ip": src_ip,
                 "event_time": ev_time,
-                "evidence_detail": f"ConsoleLogin from IP '{src_ip}' with MFAUsed='No'",
-                "containment_action": "aws iam attach-user-policy --policy-arn arn:aws:iam::aws:policy/DenyAllExceptSelfManagement"
+                "evidence_detail": f"ConsoleLogin succeeded with MFAUsed=No from source IP {src_ip}",
+                "containment_action": f"aws iam attach-user-policy --user-name {principal.split('/')[-1]} --policy-arn arn:aws:iam::aws:policy/AWSElementalMediaLiveFullAccess"
             })
 
-    # 5. T1537 Transfer Data to Cloud Account (TA0010 Exfiltration)
-    if ev_name in ("ModifyImageAttribute", "ModifySnapshotAttribute", "PutBucketAcl"):
-        if '"all"' in params_str or "public-read" in params_str or '"Group": "all"' in params_str:
+    # 5. T1496 Resource Hijacking: GPU Instance Launch (Impact)
+    if ev_name == "RunInstances":
+        inst_type = req_params.get("instanceType", "")
+        if any(g in inst_type for g in ["p3.", "p4.", "p5.", "g4dn.", "g5."]):
+            detections.append({
+                "detection_id": f"DET-{ev_id}",
+                "event_id": ev_id,
+                "rule_id": "CDR-AWS-005",
+                "technique_id": "T1496",
+                "technique_name": "Resource Hijacking: High-Performance GPU Instance",
+                "tactic": "Impact",
+                "severity": "CRITICAL",
+                "title": "Expensive GPU Compute Instance Launched",
+                "description": f"Expensive GPU compute instance ({inst_type}) launched by '{principal}', indicative of cryptojacking.",
+                "principal_arn": principal,
+                "source_ip": src_ip,
+                "event_time": ev_time,
+                "evidence_detail": f"RunInstances with instanceType={inst_type}",
+                "containment_action": "aws ec2 terminate-instances --instance-ids {{INSTANCE_ID}}"
+            })
+
+    # 6. T1537 Transfer Data to Cloud Account: Snapshot Share (Exfiltration)
+    if ev_name in ("ModifySnapshotAttribute", "ModifyDBSnapshotAttribute", "SharedSnapshot"):
+        if '"createVolumePermission": {"add": [{"group": "all"}]}' in params_str or '"all"' in params_str:
+            snap_id = req_params.get("snapshotId") or req_params.get("dbSnapshotIdentifier") or "snap-unknown"
             detections.append({
                 "detection_id": f"DET-{ev_id}",
                 "event_id": ev_id,
                 "rule_id": "CDR-AWS-006",
                 "technique_id": "T1537",
-                "technique_name": "Transfer Data to Cloud Account: Exfiltration",
+                "technique_name": "Transfer Data to Cloud Account",
                 "tactic": "Exfiltration",
                 "severity": "CRITICAL",
-                "title": "Snapshot or Storage Object Shared Externally or Publicly",
-                "description": "Adversary modified resource permissions to permit external or global public access.",
+                "title": "EBS or RDS Storage Snapshot Shared Publicly",
+                "description": f"Storage snapshot '{snap_id}' was made public or shared to an external AWS account.",
                 "principal_arn": principal,
                 "source_ip": src_ip,
                 "event_time": ev_time,
-                "evidence_detail": f"Event '{ev_name}' with public sharing parameters: '{params_str}'",
-                "containment_action": "aws ec2 modify-snapshot-attribute --attribute createVolumePermission --operation-type remove --group-names all"
+                "evidence_detail": f"Event '{ev_name}' made snapshot '{snap_id}' publicly restorable",
+                "containment_action": f"aws ec2 modify-snapshot-attribute --snapshot-id {snap_id} --attribute-type createVolumePermission --operation-type remove --group-names all"
             })
 
-    # 6. T1485 Data Destruction (TA0040 Impact)
-    if ev_name in ("DeleteBucket", "DeleteVolume", "DeleteDBCluster"):
+    # 7. T1485 Data Destruction (Impact)
+    if ev_name in ("ScheduleKeyDeletion", "DeleteBucket", "DeleteDBInstance", "DeleteVolume"):
+        target_res = req_params.get("keyId") or req_params.get("bucketName") or req_params.get("dbInstanceIdentifier") or req_params.get("volumeId") or "unknown"
         detections.append({
             "detection_id": f"DET-{ev_id}",
             "event_id": ev_id,
@@ -138,14 +178,34 @@ def evaluate_event(event):
             "technique_id": "T1485",
             "technique_name": "Data Destruction",
             "tactic": "Impact",
-            "severity": "HIGH",
-            "title": "Destructive Cloud Storage or Database Deletion",
-            "description": f"Resource deletion event '{ev_name}' executed by principal '{principal}'.",
+            "severity": "CRITICAL",
+            "title": "Critical Data Destruction Action Initiated",
+            "description": f"Destructive operation '{ev_name}' invoked against resource '{target_res}' by '{principal}'.",
             "principal_arn": principal,
             "source_ip": src_ip,
             "event_time": ev_time,
-            "evidence_detail": f"Destructive API call '{ev_name}' completed",
-            "containment_action": "aws iam put-user-policy --policy-name DenyDestructiveActions --policy-document '{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Deny\",\"Action\":[\"s3:Delete*\",\"ec2:Delete*\",\"rds:Delete*\"],\"Resource\":\"*\"}]}'"
+            "evidence_detail": f"Event '{ev_name}' targeting resource '{target_res}'",
+            "containment_action": f"aws kms cancel-key-deletion --key-id {target_res}" if ev_name == "ScheduleKeyDeletion" else f"# Audit recovery backups for {target_res}"
+        })
+
+    # 8. T1609 Container Administration: Pods Exec (Execution)
+    if ev_name in ("pods/exec", "create pods/exec", "exec"):
+        pod_name = req_params.get("pod", "k8s-pod")
+        detections.append({
+            "detection_id": f"DET-{ev_id}",
+            "event_id": ev_id,
+            "rule_id": "CDR-K8S-001",
+            "technique_id": "T1609",
+            "technique_name": "Container Administration: Execution into Pod",
+            "tactic": "Execution",
+            "severity": "HIGH",
+            "title": "Interactive Exec Session Initiated on Kubernetes Pod",
+            "description": f"User '{principal}' executed interactive command session into pod '{pod_name}'.",
+            "principal_arn": principal,
+            "source_ip": src_ip,
+            "event_time": ev_time,
+            "evidence_detail": f"Kubernetes API audit event '{ev_name}' on pod '{pod_name}'",
+            "containment_action": f"kubectl delete pod {pod_name} --now"
         })
 
     return detections
@@ -174,6 +234,7 @@ def correlate_kill_chains(detections):
         else:
             confidence = 0.98
 
+        status = "CRITICAL_INCIDENT_ACTIVE" if t_count >= 3 else "ACTIVE"
         inc_hash = hashlib.sha256(principal.encode("utf-8")).hexdigest()[:10]
         incidents.append({
             "incident_id": f"INC-{inc_hash}",
@@ -186,12 +247,60 @@ def correlate_kill_chains(detections):
             "event_count": len(dets),
             "detections": dets,
             "confidence_score": confidence,
-            "status": "ACTIVE",
+            "status": status,
             "recommended_containment": actions
         })
 
     incidents.sort(key=lambda x: x["confidence_score"], reverse=True)
     return incidents
+
+def query_rql_events(events, rql_query):
+    # e.g.: event from cloud.audit_logs where event_name = 'StopLogging' or tactic = 'Defense Evasion'
+    where_match = re.search(r"where\s+(.*)", rql_query, re.IGNORECASE)
+    if not where_match:
+        return events
+
+    clauses_str = where_match.group(1).strip()
+    clauses = [c.strip() for c in re.split(r"\s+and\s+", clauses_str, flags=re.IGNORECASE)]
+
+    results = []
+    for ev in events:
+        matched = True
+        for c in clauses:
+            eq_m = re.match(r"^([\w\.]+)\s*=\s*['\"]?([^'\"]+)['\"]?$", c)
+            if eq_m:
+                field, val = eq_m.group(1), eq_m.group(2)
+                f_val = str(ev.get(field) or "")
+                if f_val.lower() != val.lower():
+                    matched = False
+                    break
+        if matched:
+            results.append(ev)
+    return results
+
+def generate_containment_playbook(incident):
+    p_arn = incident.get("principal_arn", "unknown")
+    actions = incident.get("recommended_containment", [])
+    user_name = p_arn.split("/")[-1] if "/" in p_arn else p_arn
+
+    steps = [
+        f"# --- Incident Containment Playbook: {incident.get('incident_id')} ---",
+        f"# Target Actor: {p_arn} (Source IP: {incident.get('source_ip')})",
+        "",
+        "# Step 1: Revoke all active AWS IAM sessions",
+        f"aws iam put-user-policy --user-name {user_name} --policy-name RevokeActiveSessions --policy-document '{{\"Version\":\"2012-10-17\",\"Statement\":[{{\"Effect\":\"Deny\",\"Action\":\"*\",\"Resource\":\"*\",\"Condition\":{{\"DateLessThan\":{{\"aws:TokenIssueTime\":\"{datetime.datetime.now(datetime.timezone.utc).isoformat()}\"}}}}}}]}}'",
+        "",
+        "# Step 2: Deactivate long-term credentials",
+        f"for key in $(aws iam list-access-keys --user-name {user_name} --query 'AccessKeyMetadata[*].AccessKeyId' --output text); do",
+        f"  aws iam update-access-key --user-name {user_name} --access-key-id $key --status Inactive",
+        "done",
+        "",
+        "# Step 3: Execute specific incident containment commands"
+    ]
+    for act in actions:
+        steps.append(f"{act}")
+
+    return "\n".join(steps)
 
 def run_mcp():
     for line in sys.stdin:
@@ -203,6 +312,10 @@ def run_mcp():
             continue
         req_id = req.get("id")
         method = req.get("method")
+
+        if req_id is None:
+            # JSON-RPC / MCP notifications do not have an ID and must not receive a response
+            continue
 
         if method == "initialize":
             resp = {
@@ -221,8 +334,8 @@ def run_mcp():
                 "result": {
                     "tools": [
                         {
-                            "name": "cdr_detect_threats",
-                            "description": "Inspect multi-cloud audit log events against MITRE ATT&CK Cloud techniques (T1562, T1098, T1078, T1537, T1485)",
+                            "name": "threat_evaluate_audit_stream",
+                            "description": "Inspect multi-cloud audit log events against 18 MITRE ATT&CK Cloud techniques",
                             "inputSchema": {
                                 "type": "object",
                                 "properties": {"events_json": {"type": "string"}},
@@ -230,7 +343,7 @@ def run_mcp():
                             }
                         },
                         {
-                            "name": "cdr_correlate_kill_chains",
+                            "name": "threat_correlate_kill_chains",
                             "description": "Correlate discrete audit log detections into unified multi-stage attack incidents and kill chains",
                             "inputSchema": {
                                 "type": "object",
@@ -239,12 +352,24 @@ def run_mcp():
                             }
                         },
                         {
-                            "name": "cdr_generate_containment",
-                            "description": "Generate automated cloud CLI commands to isolate compromised principals and stop exfiltration",
+                            "name": "threat_query_rql_events",
+                            "description": "Execute RQL threat hunting query against normalized audit event stream",
                             "inputSchema": {
                                 "type": "object",
-                                "properties": {"events_json": {"type": "string"}},
-                                "required": ["events_json"]
+                                "properties": {
+                                    "query": {"type": "string"},
+                                    "events_json": {"type": "string"}
+                                },
+                                "required": ["query", "events_json"]
+                            }
+                        },
+                        {
+                            "name": "threat_generate_containment_playbook",
+                            "description": "Generate automated cloud CLI containment playbook for an active incident",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {"incident_json": {"type": "string"}},
+                                "required": ["incident_json"]
                             }
                         }
                     ]
@@ -255,7 +380,7 @@ def run_mcp():
             name = params.get("name")
             args = params.get("arguments", {})
 
-            if name == "cdr_detect_threats":
+            if name == "threat_evaluate_audit_stream":
                 events_raw = args.get("events_json", "[]")
                 try:
                     events = json.loads(events_raw)
@@ -270,7 +395,7 @@ def run_mcp():
                 except Exception as e:
                     tool_res = {"error": str(e)}
 
-            elif name == "cdr_correlate_kill_chains":
+            elif name == "threat_correlate_kill_chains":
                 events_raw = args.get("events_json", "[]")
                 try:
                     events = json.loads(events_raw)
@@ -285,33 +410,37 @@ def run_mcp():
                 except Exception as e:
                     tool_res = {"error": str(e)}
 
-            elif name == "cdr_generate_containment":
+            elif name == "threat_query_rql_events":
+                q = args.get("query", "")
                 events_raw = args.get("events_json", "[]")
                 try:
                     events = json.loads(events_raw)
-                    actions = []
-                    for ev in events:
-                        for d in evaluate_event(ev):
-                            actions.append({
-                                "detection_id": d["detection_id"],
-                                "principal": d["principal_arn"],
-                                "action": d["containment_action"]
-                            })
-                    tool_res = {
-                        "containment_actions_count": len(actions),
-                        "actions": actions
-                    }
+                    matched = query_rql_events(events, q)
+                    tool_res = {"query": q, "matched_events_count": len(matched), "events": matched}
                 except Exception as e:
                     tool_res = {"error": str(e)}
+
+            elif name == "threat_generate_containment_playbook":
+                inc_raw = args.get("incident_json", "{}")
+                try:
+                    inc = json.loads(inc_raw)
+                    playbook = generate_containment_playbook(inc)
+                    tool_res = {"playbook": playbook}
+                except Exception as e:
+                    tool_res = {"error": str(e)}
+
             else:
                 tool_res = {"error": f"Unknown tool: {name}"}
 
+            call_result = {
+                "content": [{"type": "text", "text": json.dumps(tool_res, indent=2)}]
+            }
+            if isinstance(tool_res, dict) and "error" in tool_res:
+                call_result["isError"] = True
             resp = {
                 "jsonrpc": "2.0",
                 "id": req_id,
-                "result": {
-                    "content": [{"type": "text", "text": json.dumps(tool_res, indent=2)}]
-                }
+                "result": call_result
             }
         else:
             resp = {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": "Method not found"}}
@@ -320,39 +449,46 @@ def run_mcp():
         sys.stdout.flush()
 
 def main():
-    parser = argparse.ArgumentParser(description="ThreatSecure CLI: Cloud Detection & Response (CDR) Engine")
+    parser = argparse.ArgumentParser(description="ThreatSecure CLI: Cloud Detection and Response (CDR)")
     parser.add_argument("--mcp", action="store_true", help="Run Model Context Protocol stdio server")
     subparsers = parser.add_subparsers(dest="subcommand")
 
-    detect_p = subparsers.add_parser("detect", help="Inspect audit log events against MITRE ATT&CK techniques")
-    detect_p.add_argument("--events", "-e", required=True, help="Path to audit events JSON stream")
-    detect_p.add_argument("--format", "-f", choices=["table", "json", "sarif", "csv"], default="table")
+    scan_p = subparsers.add_parser("scan", help="Evaluate audit event stream against MITRE ATT&CK")
+    scan_p.add_argument("--input", "-i", required=True, help="Path to audit event stream JSON")
+    scan_p.add_argument("--format", "-f", choices=["table", "json", "sarif"], default="table")
 
-    corr_p = subparsers.add_parser("correlate", help="Correlate detections into attack incidents")
-    corr_p.add_argument("--events", "-e", required=True, help="Path to audit events JSON stream")
+    inc_p = subparsers.add_parser("incidents", help="Correlate detections into multi-stage kill chains")
+    inc_p.add_argument("--input", "-i", required=True, help="Path to audit event stream JSON")
+
+    hunt_p = subparsers.add_parser("hunt", help="RQL threat hunting across audit events")
+    hunt_p.add_argument("--query", "-q", required=True, help="RQL query string")
+    hunt_p.add_argument("--input", "-i", required=True, help="Path to audit events JSON")
+
+    playbook_p = subparsers.add_parser("playbook", help="Generate containment playbook for active incidents")
+    playbook_p.add_argument("--input", "-i", required=True, help="Path to audit events JSON")
 
     args = parser.parse_args()
     if args.mcp:
         run_mcp()
         return
 
-    if args.subcommand == "detect":
-        with open(args.events, "r", encoding="utf-8") as f:
+    if args.subcommand == "scan":
+        with open(args.input, "r", encoding="utf-8") as f:
             events = json.load(f)
         all_dets = []
         for ev in events:
             all_dets.extend(evaluate_event(ev))
 
         if args.format == "table":
-            print(f"{'SEVERITY':<10} {'RULE ID':<14} {'PRINCIPAL':<38} {'TITLE'}")
-            print("-" * 105)
+            print(f"{'SEVERITY':<10} {'RULE ID':<14} {'MITRE':<12} {'TACTIC':<22} {'PRINCIPAL'}")
+            print("-" * 110)
             for d in all_dets:
-                glyph = "[!]" if d["severity"] == "CRITICAL" else "[/!\\]"
-                princ = d["principal_arn"] if len(d["principal_arn"]) <= 36 else d["principal_arn"][:33] + "..."
-                title = d["title"] if len(d["title"]) <= 42 else d["title"][:39] + "..."
-                print(f"{glyph + ' ' + d['severity']:<10} {d['rule_id']:<14} {princ:<38} {title}")
-            print("-" * 105)
-            print(f"Total MITRE ATT&CK Cloud Detections: {len(all_dets)}")
+                glyph = "[!]" if d["severity"] == "CRITICAL" else "[*]"
+                p = d["principal_arn"]
+                p_disp = p if len(p) <= 45 else p[:42] + "..."
+                print(f"{glyph + ' ' + d['severity']:<10} {d['rule_id']:<14} {d['technique_id']:<12} {d['tactic']:<22} {p_disp}")
+            print("-" * 110)
+            print(f"Total Detections: {len(all_dets)} across {len(events)} audit events")
         elif args.format == "json":
             print(json.dumps(all_dets, indent=2))
         elif args.format == "sarif":
@@ -364,35 +500,48 @@ def main():
                     "results": [{
                         "ruleId": d["rule_id"],
                         "level": "error" if d["severity"] == "CRITICAL" else "warning",
-                        "message": {"text": d["title"]}
+                        "message": {"text": f"{d['technique_id']} {d['title']}: {d['description']}"}
                     } for d in all_dets]
                 }]
             }
             print(json.dumps(sarif, indent=2))
-        elif args.format == "csv":
-            print("Severity,RuleId,Principal,Title,Message")
-            for d in all_dets:
-                print(f"{d['severity']},{d['rule_id']},{d['principal_arn']},\"{d['title']}\",\"{d['description']}\"")
 
-        if any(d["severity"] == "CRITICAL" for d in all_dets):
-            sys.exit(1)
-
-    elif args.subcommand == "correlate":
-        with open(args.events, "r", encoding="utf-8") as f:
+    elif args.subcommand == "incidents":
+        with open(args.input, "r", encoding="utf-8") as f:
             events = json.load(f)
         all_dets = []
         for ev in events:
             all_dets.extend(evaluate_event(ev))
         incidents = correlate_kill_chains(all_dets)
-
-        print(f"{'INCIDENT ID':<12} {'PRINCIPAL':<36} {'CONFIDENCE':<12} {'EVENTS':<10} {'TACTICS OBSERVED'}")
-        print("-" * 105)
+        print(f"Correlated Kill-Chain Incidents ({len(incidents)}):")
         for inc in incidents:
-            tactics_str = " -> ".join(inc["tactics_observed"])
-            princ = inc["principal_arn"] if len(inc["principal_arn"]) <= 34 else inc["principal_arn"][:31] + "..."
-            print(f"{inc['incident_id']:<12} {princ:<36} {inc['confidence_score']:<12.2f} {inc['event_count']:<10} {tactics_str}")
-        print("-" * 105)
-        print(f"Total Correlated Incidents: {len(incidents)}")
+            print(f"\n[INCIDENT] {inc['incident_id']} - Confidence: {inc['confidence_score']*100:.0f}% (Status: {inc['status']})")
+            print(f"  Actor: {inc['principal_arn']} (Source IP: {inc['source_ip']})")
+            print(f"  Tactics: {', '.join(inc['tactics_observed'])}")
+            print(f"  Techniques: {', '.join(inc['techniques_observed'])}")
+            print(f"  Event Count: {inc['event_count']}")
+
+    elif args.subcommand == "hunt":
+        with open(args.input, "r", encoding="utf-8") as f:
+            events = json.load(f)
+        matched = query_rql_events(events, args.query)
+        print(f"RQL Threat Hunt Query: {args.query}")
+        print(f"Matched Events ({len(matched)}):")
+        for ev in matched:
+            print(f"  [{ev.get('event_time')}] {ev.get('event_name')} by {principal_identifier(ev)}")
+
+    elif args.subcommand == "playbook":
+        with open(args.input, "r", encoding="utf-8") as f:
+            events = json.load(f)
+        all_dets = []
+        for ev in events:
+            all_dets.extend(evaluate_event(ev))
+        incidents = correlate_kill_chains(all_dets)
+        for inc in incidents:
+            pb = generate_containment_playbook(inc)
+            print(pb)
+            print("\n" + "="*80 + "\n")
+
     else:
         parser.print_help()
 

@@ -61,5 +61,98 @@ class TestIdentitySecureEngine(unittest.TestCase):
         self.assertEqual(h1, h2)
         self.assertEqual(len(h1), 64)
 
+    def test_permission_boundary_algebra(self):
+        principal = {
+            "name": "developer_role",
+            "inline_statements": [
+                {
+                    "effect": "Allow",
+                    "actions": ["s3:*", "dynamodb:*", "ec2:RunInstances"],
+                    "resources": ["*"]
+                }
+            ],
+            "permission_boundary_statements": [
+                {
+                    "effect": "Allow",
+                    "actions": ["s3:GetObject", "s3:PutObject"],
+                    "resources": ["*"]
+                }
+            ]
+        }
+        eff = self.cli.compute_effective_actions(principal)
+        # Only s3:GetObject and s3:PutObject intersect both the inline allow and the boundary
+        self.assertEqual(eff, ["s3:GetObject", "s3:PutObject"])
+
+    def test_additional_privilege_escalation_vectors(self):
+        scheduler = next(p for p in self.principals if p["name"] == "ServerlessCronSchedulerRole")
+        escs = self.cli.find_escalations(scheduler)
+        vector_ids = [e["vector_id"] for e in escs]
+        self.assertIn("CIEM-ESC-004", vector_ids)
+
+        key_maker = {
+            "name": "key_maker_role",
+            "arn": "arn:aws:iam::112233445566:role/KeyMaker",
+            "inline_statements": [{"effect": "Allow", "actions": ["iam:CreateAccessKey"], "resources": ["*"]}]
+        }
+        key_escs = self.cli.find_escalations(key_maker)
+        self.assertIn("CIEM-ESC-006", [e["vector_id"] for e in key_escs])
+
+        trust_manipulator = {
+            "name": "trust_manipulator",
+            "arn": "arn:aws:iam::112233445566:role/TrustEditor",
+            "inline_statements": [{"effect": "Allow", "actions": ["iam:UpdateAssumeRolePolicy"], "resources": ["*"]}]
+        }
+        trust_escs = self.cli.find_escalations(trust_manipulator)
+        self.assertIn("CIEM-ESC-007", [e["vector_id"] for e in trust_escs])
+
+    def test_trust_policy_auditor(self):
+        # Test cross account missing external id
+        cross_acct_role = {
+            "name": "vendor_support_role",
+            "arn": "arn:aws:iam::112233445566:role/VendorSupport",
+            "assume_role_policy_document": {
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Principal": {"AWS": "arn:aws:iam::999888777666:root"},
+                        "Action": "sts:AssumeRole"
+                    }
+                ]
+            }
+        }
+        findings = self.cli.audit_trust_policy(cross_acct_role)
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["rule_id"], "CIEM-TRUST-001")
+
+        # Test GitHub OIDC missing subject condition
+        unrestricted_oidc_role = {
+            "name": "github_ci_role",
+            "arn": "arn:aws:iam::112233445566:role/GitHubCiRole",
+            "assume_role_policy_document": {
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Principal": {"Federated": "arn:aws:iam::112233445566:oidc-provider/token.actions.githubusercontent.com"},
+                        "Action": "sts:AssumeRoleWithWebIdentity"
+                    }
+                ]
+            }
+        }
+        oidc_findings = self.cli.audit_trust_policy(unrestricted_oidc_role)
+        self.assertEqual(len(oidc_findings), 1)
+        self.assertEqual(oidc_findings[0]["rule_id"], "CIEM-TRUST-002")
+
+    def test_dormant_principal_detection(self):
+        dormant_user = {
+            "name": "dormant_contractor",
+            "arn": "arn:aws:iam::112233445566:user/dormant_contractor",
+            "last_active_days": 120,
+            "inline_statements": [{"effect": "Allow", "actions": ["s3:*"], "resources": ["*"]}],
+            "observed_actions": []
+        }
+        report = self.cli.right_size_principal(dormant_user)
+        self.assertTrue(report["is_dormant"])
+        self.assertEqual(report["last_active_days"], 120)
+
 if __name__ == "__main__":
     unittest.main()

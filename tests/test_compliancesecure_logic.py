@@ -91,6 +91,25 @@ class TestComplianceSecureEngine(unittest.TestCase):
         self.assertIn("Control ID,Framework,Title,Status,Failing Findings Count,Summary", csv_str)
         self.assertIn("CC6.1", csv_str)
 
+    def test_cross_framework_control_crosswalk(self):
+        cw = self.cli.crosswalk_controls(self.findings)
+        self.assertEqual(len(cw), 12)
+
+        data_01 = next(c for c in cw if c["finding_id"] == "FINDING-DATA-01")
+        self.assertIn("CC6.1", data_01["crosswalk"]["soc2"])
+        self.assertIn("164.312", data_01["crosswalk"]["hipaa"])
+        self.assertTrue(len(data_01["crosswalk"]["pci"]) > 0)
+
+    def test_remediation_queue_what_if_simulation(self):
+        sim = self.cli.simulate_remediation_queue(self.findings, ["REM-01", "REM-02"])
+        self.assertEqual(sim["initial_findings_count"], 12)
+        self.assertEqual(sim["remaining_findings_count"], 10)
+        self.assertEqual(sim["completed_remediations"], ["REM-01", "REM-02"])
+
+        # Check improvements are non-negative across all frameworks
+        for fw, gain in sim["readiness_improvements"].items():
+            self.assertTrue(gain >= 0.0)
+
     def test_clean_environment_100_percent_readiness(self):
         clean_findings = []
         for fw in ["soc2", "iso27001", "pci", "hipaa", "nist", "fedramp"]:

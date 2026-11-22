@@ -27,7 +27,7 @@
           <span>CLOUDSECURE</span>
         </a>
         <a href="index.html" class="nav-cell">Home</a>
-        <a href="apps.html" class="nav-cell">Apps (13)</a>
+        <a href="apps.html" class="nav-cell">Apps (14)</a>
         <a href="workbench.html" class="nav-cell active nav-mobile-keep">GUI Workbench</a>
         <a href="rql.html" class="nav-cell">RQL Studio</a>
         <a href="download.html" class="nav-cell">Download</a>
@@ -46,7 +46,7 @@
   <!-- Mobile Drawer -->
   <div id="mobile-drawer" class="mobile-drawer" role="dialog" aria-modal="true" aria-label="Mobile Navigation">
     <a href="index.html" class="nav-cell">Home</a>
-    <a href="apps.html" class="nav-cell">Apps (13)</a>
+    <a href="apps.html" class="nav-cell">Apps (14)</a>
     <a href="workbench.html" class="nav-cell active">GUI Workbench</a>
     <a href="rql.html" class="nav-cell">RQL Studio</a>
     <a href="download.html" class="nav-cell">Download</a>
@@ -119,6 +119,7 @@
           <div class="wb-toolbar-right">
             <button id="btn-export-json" class="btn btn-secondary btn-sm" type="button">Export JSON</button>
             <button id="btn-export-sarif" class="btn btn-secondary btn-sm" type="button">Export SARIF</button>
+            <button id="btn-reset-session" class="btn btn-secondary btn-sm" type="button">Reset Session</button>
           </div>
         </div>
 
@@ -142,54 +143,59 @@
         All GUI workbench operations evaluate locally within your browser sandbox against loaded telemetry feeds. No cloud credentials, API tokens, or data store records leave your machine. To automate these scans in headless CI/CD environments or connect them to AI coding agents, run the corresponding CLI with the <code>--mcp</code> flag.
       </div>
     </div>
+
+    <!-- Interactive Feedback Toast Container & Modal Root -->
+    <div id="wb-toast-container" class="wb-toast-container" aria-live="polite"></div>
+    <div id="wb-modal-root"></div>
   </main>
 
-  <!-- Site Footer -->
-  <footer class="site-footer">
+  <!-- Footer Bay -->
+  <footer class="footer-bay">
     <div class="footer-grid">
-      <div>
-        <div class="footer-brand">CLOUDSECURE</div>
-        <p class="footer-tagline">
-          Thirteen security applications. One unified architecture. Rebuilt in 100% pure Rust.
+      <div class="footer-col">
+        <h4>CloudSecure Suite</h4>
+        <p class="app-desc">
+          Fourteen pure Rust applications engineered for local-first multi-cloud security posture and defense.
         </p>
       </div>
-      <div>
-        <div class="footer-col-title">NAVIGATION</div>
-        <div class="footer-links">
-          <a href="index.html">Home</a>
-          <a href="apps.html">Applications (13)</a>
-          <a href="workbench.html">GUI Workbench</a>
-          <a href="rql.html">RQL Studio</a>
-          <a href="download.html">Download Suite</a>
-          <a href="docs.html">Documentation</a>
-        </div>
+      <div class="footer-col">
+        <h4>Navigation</h4>
+        <ul class="footer-links">
+          <li><a href="index.html">Home Overview</a></li>
+          <li><a href="apps.html">All 14 Applications</a></li>
+          <li><a href="workbench.html">GUI Workbench</a></li>
+          <li><a href="rql.html">Interactive RQL Studio</a></li>
+          <li><a href="download.html">Download Matrix</a></li>
+          <li><a href="docs.html">Documentation & MCP</a></li>
+        </ul>
       </div>
-      <div>
-        <div class="footer-col-title">SECURITY PILLARS</div>
-        <div class="footer-links">
-          <a href="workbench.html?app=posturesecure">PostureSecure (CSPM)</a>
-          <a href="workbench.html?app=datasecure">DataSecure (DSPM)</a>
-          <a href="workbench.html?app=workloadsecure">WorkloadSecure (CWPP)</a>
-          <a href="workbench.html?app=identitysecure">IdentitySecure (CIEM)</a>
-          <a href="workbench.html?app=aisecure">AiSecure (AI-SPM)</a>
-          <a href="workbench.html?app=compliancesecure">ComplianceSecure</a>
-        </div>
+      <div class="footer-col">
+        <h4>Security Pillars</h4>
+        <ul class="footer-links">
+          <li><a href="workbench.html?app=posturesecure">PostureSecure (CSPM)</a></li>
+          <li><a href="workbench.html?app=datasecure">DataSecure (DSPM)</a></li>
+          <li><a href="workbench.html?app=workloadsecure">WorkloadSecure (CWPP)</a></li>
+          <li><a href="workbench.html?app=identitysecure">IdentitySecure (CIEM)</a></li>
+          <li><a href="workbench.html?app=aisecure">AiSecure (AI-SPM)</a></li>
+          <li><a href="workbench.html?app=compliancesecure">ComplianceSecure</a></li>
+        </ul>
       </div>
-      <div>
-        <div class="footer-col-title">SOURCE & SPECS</div>
-        <div class="footer-links">
-          <a href="https://github.com/kennyanju/plantainchips" target="_blank" rel="noopener noreferrer">GitHub Monorepo</a>
-          <a href="https://github.com/kennyanju/plantainchips/releases" target="_blank" rel="noopener noreferrer">Official Releases</a>
-          <a href="docs.html">MCP Tool Schemas</a>
-        </div>
+      <div class="footer-col">
+        <h4>License & Source</h4>
+        <ul class="footer-links">
+          <li><a href="https://github.com/kennyanju/plantainchips" target="_blank" rel="noopener noreferrer">GitHub Monorepo</a></li>
+          <li><a href="https://github.com/kennyanju/plantainchips/releases" target="_blank" rel="noopener noreferrer">Official Releases</a></li>
+          <li><a href="docs.html">MCP Tool Schemas</a></li>
+        </ul>
       </div>
     </div>
 
     <div class="legal-disclaimer">
-      CloudSecure is an independent, clean-room open-source security tool suite written in Rust. It is not affiliated with, endorsed by, or sponsored by enterprise CNAPP Networks, Inc. All trademarks are the property of their respective owners.
+      <strong>Trademark Notice & Legal Disclaimer:</strong> CloudSecure and its component applications (PostureSecure, DataSecure, WorkloadSecure, IdentitySecure, CodeSecure, WaasSecure, ThreatSecure, GraphSecure, NetSecure, AiSecure, SupplySecure, PolicySecure, ComplianceSecure, and LauncherSecure) are an independent, clean-room open-source project. All application names end with the descriptive suffix "-secure". CloudSecure is not affiliated with, sponsored by, or endorsed by Palo Alto Networks, Inc., Ivanti, or any other trademark owners.
     </div>
   </footer>
 
+  <script src="js/rql-engine.js"></script>
   <script src="js/app.js"></script>
   <script src="js/workbench.js"></script>
 </body>

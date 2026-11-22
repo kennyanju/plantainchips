@@ -107,6 +107,49 @@ class TestSupplySecureEngine(unittest.TestCase):
         self.assertIn("verify-cosign-signature", policy_yaml)
         self.assertIn("verify-slsa-level3-attestation", policy_yaml)
 
+    def test_ci_cd_workflow_security_scanner(self):
+        sample_workflow = """name: CI
+on:
+  pull_request_target:
+    types: [opened, synchronize]
+permissions: write-all
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Process Issue Title
+        run: echo "Processing ${{ github.event.issue.title }}"
+"""
+        violations = self.cli.evaluate_workflow(".github/workflows/ci.yml", sample_workflow)
+        self.assertEqual(len(violations), 4)
+
+        rule_ids = {v["rule_id"] for v in violations}
+        self.assertEqual(rule_ids, {"SUPPLY-CI-001", "SUPPLY-CI-002", "SUPPLY-CI-003", "SUPPLY-CI-004"})
+
+        # Check severity of PwnRequest and Script Injection
+        pwn_v = next(v for v in violations if v["rule_id"] == "SUPPLY-CI-002")
+        self.assertEqual(pwn_v["severity"], "CRITICAL")
+
+        inj_v = next(v for v in violations if v["rule_id"] == "SUPPLY-CI-003")
+        self.assertEqual(inj_v["severity"], "CRITICAL")
+
+    def test_workflow_auto_pinning_patch(self):
+        unpinned_workflow = """name: Build
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+"""
+        patched = self.cli.generate_pinned_workflow_patch(unpinned_workflow)
+        self.assertIn("actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3.6.0", patched)
+        self.assertIn("actions/setup-python@65d7f2d534ac1bc67fcd62888c5f4f3d2cb2b236 # v4.7.1", patched)
+        self.assertNotIn("actions/checkout@v3\n", patched)
+
     def test_deterministic_state_hash(self):
         for sig in self.signatures:
             raw = f"{sig['artifact_uri']}:{sig['digest']}:{sig['is_signed']}"

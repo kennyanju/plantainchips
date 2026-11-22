@@ -56,7 +56,98 @@ def inspect_prompt(record):
             })
             break
 
+    # LLM06: PII / Secret firewall in prompt
+    import re
+    pii_patterns = [
+        ("AWS / OpenAI API Key", r"sk-[a-zA-Z0-9_-]{20,}|AKIA[0-9A-Z]{16}"),
+        ("US Social Security Number", r"\b\d{3}-\d{2}-\d{4}\b"),
+        ("Payment Card Number", r"\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13})\b"),
+    ]
+    for p_type, pat in pii_patterns:
+        m = re.search(pat, p_text)
+        if m:
+            findings.append({
+                "id": f"PII-{pid}-{p_type.replace(' ', '-').lower()}",
+                "rule_id": "LLM06:2025",
+                "category": "Sensitive Information Disclosure",
+                "severity": "HIGH",
+                "title": f"Sensitive {p_type} Leaked in Inbound Prompt",
+                "description": f"Prompt payload contains unredacted {p_type} submitted to LLM endpoint.",
+                "resource_id": f"prompt:{pid}",
+                "evidence_detail": f"Pattern for {p_type} identified in prompt from source '{src}'",
+                "remediation_guardrail": "Enforce client-side DLP and Cloudflare AI Gateway PII redaction filter prior to inference."
+            })
+            break
+
     return findings
+
+def scan_model_artifact(file_name, data_bytes):
+    lower_name = file_name.lower()
+    if lower_name.endswith(".safetensors"):
+        return {
+            "file_name": file_name,
+            "format": "safetensors",
+            "is_safe": True,
+            "detected_opcodes": [],
+            "findings": []
+        }
+
+    if lower_name.endswith(".gguf") or data_bytes[:4] == b"GGUF":
+        return {
+            "file_name": file_name,
+            "format": "gguf",
+            "is_safe": True,
+            "detected_opcodes": [],
+            "findings": []
+        }
+
+    dangerous_keywords = [
+        "os.system",
+        "posix",
+        "subprocess",
+        "__builtin__",
+        "builtins",
+        "eval",
+        "exec",
+        "shutil",
+    ]
+    detected = []
+    text_content = ""
+    try:
+        text_content = data_bytes.decode("latin-1")
+    except Exception:
+        pass
+
+    for kw in dangerous_keywords:
+        if kw in text_content:
+            detected.append(kw)
+
+    has_reduce = b"R" in data_bytes
+    has_global = b"c" in data_bytes or b"\x93" in data_bytes
+
+    findings = []
+    is_safe = True
+    if has_reduce and has_global and detected:
+        is_safe = False
+        findings.append({
+            "id": f"PICKLE-{file_name.replace('.', '-')}",
+            "rule_id": "AI-SPM-006",
+            "category": "Model Artifact Integrity",
+            "severity": "CRITICAL",
+            "title": "Dangerous Python Pickle Deserialization Opcodes Detected in Model Checkpoint",
+            "description": f"Model artifact '{file_name}' contains executable pickle deserialization opcodes (REDUCE/GLOBAL) referencing dangerous symbols ({detected}).",
+            "resource_id": f"model:{file_name}",
+            "evidence_detail": f"Opcodes REDUCE + GLOBAL with symbols: {', '.join(detected)}",
+            "remediation_guardrail": "Convert model weights checkpoint from unsafe Pickle format to SafeTensors format (convert_to_safetensors.py)."
+        })
+
+    return {
+        "file_name": file_name,
+        "format": "pickle" if (lower_name.endswith((".pkl", ".pt", ".bin", ".pth")) or has_reduce) else "unknown",
+        "is_safe": is_safe,
+        "detected_opcodes": detected,
+        "findings": findings
+    }
 
 def evaluate_asset(asset):
     findings = []
@@ -194,6 +285,10 @@ def run_mcp():
         req_id = req.get("id")
         method = req.get("method")
 
+        if req_id is None:
+            # JSON-RPC / MCP notifications do not have an ID and must not receive a response
+            continue
+
         if method == "initialize":
             resp = {
                 "jsonrpc": "2.0",
@@ -238,6 +333,18 @@ def run_mcp():
                                     "prompts_json": {"type": "string"}
                                 },
                                 "required": ["inventory_json"]
+                            }
+                        },
+                        {
+                            "name": "ai_scan_model_artifact",
+                            "description": "Scan machine learning model weights checkpoint for dangerous pickle opcodes",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "file_name": {"type": "string"},
+                                    "content_hex_or_text": {"type": "string"}
+                                },
+                                "required": ["file_name"]
                             }
                         }
                     ]
@@ -300,15 +407,24 @@ def run_mcp():
                     }
                 except Exception as e:
                     tool_res = {"error": str(e)}
+            elif name == "ai_scan_model_artifact":
+                file_name = args.get("file_name", "model.bin")
+                raw_data = args.get("content_hex_or_text", "")
+                data_bytes = raw_data.encode("latin-1")
+                res = scan_model_artifact(file_name, data_bytes)
+                tool_res = res
             else:
                 tool_res = {"error": f"Unknown tool: {name}"}
 
+            call_result = {
+                "content": [{"type": "text", "text": json.dumps(tool_res, indent=2)}]
+            }
+            if isinstance(tool_res, dict) and "error" in tool_res:
+                call_result["isError"] = True
             resp = {
                 "jsonrpc": "2.0",
                 "id": req_id,
-                "result": {
-                    "content": [{"type": "text", "text": json.dumps(tool_res, indent=2)}]
-                }
+                "result": call_result
             }
         else:
             resp = {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": "Method not found"}}
@@ -332,6 +448,10 @@ def main():
     syn_p = subparsers.add_parser("synthesize-guardrails", help="Synthesize AI gateway guardrails")
     syn_p.add_argument("--inventory", "-i", required=True, help="Path to AI inventory JSON")
     syn_p.add_argument("--prompts", "-p", help="Path to prompts JSON")
+
+    scan_p = subparsers.add_parser("scan-model", help="Scan model weights checkpoint for dangerous pickle opcodes")
+    scan_p.add_argument("--file", "-f", required=True, help="Path to model weights checkpoint (.safetensors, .pkl, .pt, .bin)")
+    scan_p.add_argument("--format", "-o", choices=["table", "json"], default="table")
 
     args = parser.parse_args()
     if args.mcp:
@@ -439,6 +559,24 @@ def main():
         print("\n=== Active Output Guardrail Rules ===")
         for r in out_rules:
             print(f"- {r}")
+
+    elif args.subcommand == "scan-model":
+        with open(args.file, "rb") as f:
+            data = f.read()
+        res = scan_model_artifact(os.path.basename(args.file), data)
+        if args.format == "table":
+            print(f"Model Checkpoint Scan: {res['file_name']}")
+            print(f"Format: {res['format'].upper()} | Safe: {res['is_safe']}")
+            if not res["is_safe"]:
+                print(f"[!] CRITICAL: Dangerous opcodes detected: {res['detected_opcodes']}")
+                for f in res["findings"]:
+                    print(f"  - {f['title']}: {f['description']}")
+            else:
+                print("[OK] No dangerous pickle deserialization opcodes detected.")
+        else:
+            print(json.dumps(res, indent=2))
+        if not res["is_safe"]:
+            sys.exit(1)
 
     else:
         parser.print_help()

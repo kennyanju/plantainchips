@@ -81,6 +81,51 @@ class TestWaasSecureEngine(unittest.TestCase):
         self.assertEqual(aws_rules["Name"], "CloudSecure-WAF-RuleGroup")
         self.assertTrue(len(aws_rules["Rules"]) >= 1)
 
+    def test_interactive_payload_probe(self):
+        # 1. SQL Injection Probe
+        sqli_req = {"method": "GET", "uri": "/api/v1/search?q=' UNION SELECT 1,2,3--"}
+        sqli_res = self.cli.evaluate_traffic(sqli_req, None)
+        self.assertTrue(any(v["rule_id"] == "WAAS-SQLI-001" for v in sqli_res))
+
+        # 2. XSS Probe
+        xss_req = {"method": "POST", "uri": "/api/v1/comment", "request_body": {"msg": "<script>alert(1)</script>"}}
+        xss_res = self.cli.evaluate_traffic(xss_req, None)
+        self.assertTrue(any(v["rule_id"] == "WAAS-XSS-001" for v in xss_res))
+
+        # 3. SSRF / Cloud Metadata Probe
+        ssrf_req = {"method": "GET", "uri": "/api/v1/proxy?url=http://169.254.169.254/latest/meta-data/"}
+        ssrf_res = self.cli.evaluate_traffic(ssrf_req, None)
+        self.assertTrue(any(v["rule_id"] == "WAAS-SSRF-001" for v in ssrf_res))
+
+        # 4. Command Injection Probe
+        cmdi_req = {"method": "GET", "uri": "/api/v1/exec?cmd=; cat /etc/passwd"}
+        cmdi_res = self.cli.evaluate_traffic(cmdi_req, None)
+        self.assertTrue(any(v["rule_id"] == "WAAS-CMDI-001" for v in cmdi_res))
+
+        # 5. Path Traversal Probe
+        path_req = {"method": "GET", "uri": "/api/v1/files/download?path=../../../../etc/passwd"}
+        path_res = self.cli.evaluate_traffic(path_req, None)
+        self.assertTrue(any(v["rule_id"] == "WAAS-PATH-001" for v in path_res))
+
+        # 6. JWT alg:none Probe
+        jwt_req = {"method": "GET", "uri": "/api/v1/secure", "headers": {"Authorization": "Bearer eyJhbGciOiJub25lIn0.payload.sig"}}
+        jwt_res = self.cli.evaluate_traffic(jwt_req, None)
+        self.assertTrue(any("alg:none" in v.get("category", "") for v in jwt_res))
+
+    def test_multi_format_virtual_patches(self):
+        violations = [
+            {"endpoint": "/admin/system/backup", "rule_id": "API5:2023", "title": "BFLA Admin Access", "suggested_waf_rule": 'http.request.uri.path contains "/admin/system/backup"'}
+        ]
+        patches = self.cli.synthesize_virtual_patches(violations)
+        self.assertIn("cloudflare_wirefilter", patches)
+        self.assertIn("aws_wafv2", patches)
+        self.assertIn("modsecurity", patches)
+        self.assertIn("envoy", patches)
+
+        self.assertIn("SecRule REQUEST_URI", patches["modsecurity"])
+        self.assertEqual(len(patches["envoy"]["virtual_patches"]), 1)
+        self.assertEqual(patches["envoy"]["virtual_patches"][0]["match"]["prefix"], "/admin/system/backup")
+
     def test_deterministic_traffic_hash(self):
         for r in self.traffic:
             raw = f"{r['id']}:{r['method']}:{r['uri']}:{r['client_ip']}"

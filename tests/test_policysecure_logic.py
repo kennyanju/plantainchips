@@ -109,6 +109,22 @@ class TestPolicySecureEngine(unittest.TestCase):
         self.assertEqual(report["failed_rules"], 1)
         self.assertIn("False positive", report["results"][0]["failure_details"][0])
 
+    def test_signed_policy_pack_export(self):
+        digest = self.cli.compute_pack_state_hash(self.pack)
+        self.assertEqual(len(digest), 64)
+
+        signed_pack, out_digest = self.cli.export_signed_policy_pack(self.pack)
+        self.assertEqual(digest, out_digest)
+        self.assertIn("metadata", signed_pack)
+        self.assertEqual(signed_pack["metadata"]["state_hash"], digest)
+        self.assertEqual(signed_pack["metadata"]["verified_rules"], 4)
+        self.assertEqual(signed_pack["metadata"]["test_status"], "PASSED")
+
+        # Ensure exporting an invalid pack fails
+        broken_pack = {"name": "", "version": "1.0", "rules": []}
+        with self.assertRaises(ValueError):
+            self.cli.export_signed_policy_pack(broken_pack)
+
     def test_deterministic_state_hash(self):
         for rule in self.pack["rules"]:
             raw = f"{rule['id']}:{rule['family']}:{rule['severity']}:{rule['rql_query']}"

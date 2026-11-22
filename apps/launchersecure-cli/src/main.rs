@@ -70,6 +70,7 @@ enum OutputFormat {
     Table,
     Json,
     Csv,
+    Sarif,
 }
 
 #[tokio::main]
@@ -217,6 +218,42 @@ fn output_catalog(apps: &[&SuiteAppItem], format: OutputFormat) -> Result<(), Bo
                 );
             }
         }
+        OutputFormat::Sarif => {
+            let results: Vec<_> = apps
+                .iter()
+                .filter(|app| app.status == AppStatus::UpdateAvailable || app.status == AppStatus::Quarantined)
+                .map(|app| {
+                    let level = if app.status == AppStatus::Quarantined {
+                        "error"
+                    } else {
+                        "warning"
+                    };
+                    serde_json::json!({
+                        "ruleId": format!("LAUNCHER-APP-{}", app.id.to_uppercase()),
+                        "level": level,
+                        "message": {
+                            "text": format!(
+                                "App {} ({}) status: {:?}, installed: {}, latest: {}",
+                                app.name,
+                                app.pillar,
+                                app.status,
+                                app.installed_version.as_deref().unwrap_or("none"),
+                                app.latest_version
+                            )
+                        }
+                    })
+                })
+                .collect();
+            let sarif = serde_json::json!({
+                "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+                "version": "2.1.0",
+                "runs": [{
+                    "tool": { "driver": { "name": "LauncherSecure", "version": "0.1.0" } },
+                    "results": results
+                }]
+            });
+            println!("{}", serde_json::to_string_pretty(&sarif)?);
+        }
     }
     Ok(())
 }
@@ -235,7 +272,10 @@ async fn run_mcp_server() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         let request: serde_json::Value = serde_json::from_str(&line)?;
-        let id = request.get("id").cloned();
+        let id = match request.get("id") {
+            Some(v) if !v.is_null() => v.clone(),
+            _ => continue, // JSON-RPC notifications must not receive a response
+        };
         let method = request.get("method").and_then(|m| m.as_str()).unwrap_or("");
 
         let response = match method {
@@ -362,17 +402,22 @@ async fn run_mcp_server() -> Result<(), Box<dyn std::error::Error>> {
                     _ => serde_json::json!({ "error": format!("Unknown tool: {}", name) }),
                 };
 
+                let is_error = tool_result.get("error").is_some();
+                let mut res_obj = serde_json::json!({
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": serde_json::to_string_pretty(&tool_result).unwrap_or_default()
+                        }
+                    ]
+                });
+                if is_error {
+                    res_obj["isError"] = serde_json::json!(true);
+                }
                 serde_json::json!({
                     "jsonrpc": "2.0",
                     "id": id,
-                    "result": {
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": serde_json::to_string_pretty(&tool_result).unwrap_or_default()
-                            }
-                        ]
-                    }
+                    "result": res_obj
                 })
             }
             _ => serde_json::json!({

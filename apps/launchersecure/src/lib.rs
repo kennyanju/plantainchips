@@ -95,6 +95,7 @@ pub enum LauncherCommand {
     },
     RollbackApp(String),
     CheckAllUpdates,
+    UpdateAll,
 }
 
 /// Complete LauncherSecure domain engine.
@@ -295,6 +296,25 @@ impl CloudSecureAppEngine for LauncherEngine {
                     records_affected: updates,
                     execution_ms: start.elapsed().as_millis() as u64,
                     state_hash: format!("updates-{}", updates),
+                })
+            }
+            LauncherCommand::UpdateAll => {
+                let mut updates = 0;
+                for a in &mut self.apps {
+                    if a.status == AppStatus::UpdateAvailable
+                        || (a.installed_version.is_some()
+                            && a.installed_version.as_deref() != Some(&a.latest_version))
+                    {
+                        a.installed_version = Some(a.latest_version.clone());
+                        a.status = AppStatus::Installed;
+                        updates += 1;
+                    }
+                }
+                Ok(CommandReceipt {
+                    command_name: "UpdateAll".into(),
+                    records_affected: updates,
+                    execution_ms: start.elapsed().as_millis() as u64,
+                    state_hash: format!("updated-{}", updates),
                 })
             }
         }

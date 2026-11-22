@@ -53,6 +53,17 @@ enum Commands {
         #[arg(short, long)]
         prompts: Option<PathBuf>,
     },
+
+    /// Scan ML model checkpoint artifact (.safetensors, .gguf, .pkl, .bin) for malicious deserialization opcodes
+    ScanModel {
+        /// Path to model weight or artifact file
+        #[arg(short, long)]
+        file: PathBuf,
+
+        /// Output formatting style
+        #[arg(short = 'o', long, default_value = "table")]
+        format: OutputFormat,
+    },
 }
 
 #[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
@@ -132,6 +143,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("- {}", r);
             }
         }
+        Some(Commands::ScanModel { file, format }) => {
+            let bytes = fs::read(&file)?;
+            let file_name = file
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("model.bin");
+            let res = aisecure::ModelArtifactScanner::scan(file_name, &bytes);
+            if format == OutputFormat::Table {
+                println!("Model Checkpoint Scan: {}", res.file_name);
+                println!("Format: {:?} | Safe: {}", res.format, res.is_safe);
+                if !res.is_safe {
+                    println!("[!] CRITICAL: Dangerous opcodes detected: {:?}", res.detected_opcodes);
+                    for f in &res.findings {
+                        println!("  - {}: {}", f.title, f.description);
+                    }
+                } else {
+                    println!("[OK] No dangerous pickle deserialization opcodes detected.");
+                }
+            } else {
+                println!("{}", serde_json::to_string_pretty(&res)?);
+            }
+            if !res.is_safe {
+                std::process::exit(1);
+            }
+        }
         None => {
             eprintln!("Error: No command specified. Use --help for usage details.");
             std::process::exit(1);
@@ -207,7 +243,10 @@ async fn run_mcp_server() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         let request: serde_json::Value = serde_json::from_str(&line)?;
-        let id = request.get("id").cloned();
+        let id = match request.get("id") {
+            Some(v) if !v.is_null() => v.clone(),
+            _ => continue, // JSON-RPC notifications must not receive a response
+        };
         let method = request.get("method").and_then(|m| m.as_str()).unwrap_or("");
 
         let response = match method {
@@ -260,6 +299,17 @@ async fn run_mcp_server() -> Result<(), Box<dyn std::error::Error>> {
                                     "prompts_json": { "type": "string" }
                                 },
                                 "required": ["inventory_json"]
+                            }
+                        },
+                        {
+                            "name": "aispm_scan_model_artifact",
+                            "description": "Scan ML model checkpoint artifact (.safetensors, .gguf, .pkl, .bin) for malicious deserialization opcodes",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "file_path": { "type": "string" }
+                                },
+                                "required": ["file_path"]
                             }
                         }
                     ]
@@ -319,18 +369,37 @@ async fn run_mcp_server() -> Result<(), Box<dyn std::error::Error>> {
                             Err(e) => serde_json::json!({ "error": e.to_string() }),
                         }
                     }
+                    "aispm_scan_model_artifact" => {
+                        let path = args.get("file_path").and_then(|s| s.as_str()).unwrap_or("");
+                        match fs::read(path) {
+                            Ok(bytes) => {
+                                let f_name = std::path::Path::new(path)
+                                    .file_name()
+                                    .and_then(|n| n.to_str())
+                                    .unwrap_or("model.bin");
+                                let res = aisecure::ModelArtifactScanner::scan(f_name, &bytes);
+                                serde_json::to_value(res).unwrap_or_else(|e| serde_json::json!({ "error": e.to_string() }))
+                            }
+                            Err(e) => serde_json::json!({ "error": format!("Cannot read file '{}': {}", path, e) }),
+                        }
+                    }
                     _ => serde_json::json!({ "error": format!("Unknown tool: {}", name) }),
                 };
 
+                let is_error = tool_result.get("error").is_some();
+                let mut res_obj = serde_json::json!({
+                    "content": [{
+                        "type": "text",
+                        "text": serde_json::to_string_pretty(&tool_result)?
+                    }]
+                });
+                if is_error {
+                    res_obj["isError"] = serde_json::json!(true);
+                }
                 serde_json::json!({
                     "jsonrpc": "2.0",
                     "id": id,
-                    "result": {
-                        "content": [{
-                            "type": "text",
-                            "text": serde_json::to_string_pretty(&tool_result)?
-                        }]
-                    }
+                    "result": res_obj
                 })
             }
             _ => serde_json::json!({

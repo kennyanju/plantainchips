@@ -221,6 +221,62 @@ impl ToxicCombinationSolver {
 
         paths
     }
+
+    /// Filters discovered attack paths against predefined toxic combination templates.
+    pub fn filter_by_template(
+        graph: &SecurityGraph,
+        paths: &[AttackPath],
+        template: ToxicTemplate,
+    ) -> Vec<AttackPath> {
+        let node_map: HashMap<&str, &GraphNode> = graph.nodes.iter().map(|n| (n.id.as_str(), n)).collect();
+        let edge_map: HashMap<&str, &GraphEdge> = graph.edges.iter().map(|e| (e.id.as_str(), e)).collect();
+
+        paths
+            .iter()
+            .filter(|p| match template {
+                ToxicTemplate::InternetCveCrownJewel => {
+                    p.hops.iter().any(|h| {
+                        node_map.get(h.as_str()).map_or(false, |n| !n.cves.is_empty())
+                    })
+                }
+                ToxicTemplate::ContainerEscapeIamAdmin => {
+                    let has_container = p.hops.iter().any(|h| {
+                        node_map.get(h.as_str()).map_or(false, |n| n.node_type == NodeType::Container)
+                    });
+                    let has_admin_role = p.hops.iter().any(|h| {
+                        node_map.get(h.as_str()).map_or(false, |n| {
+                            n.node_type == NodeType::IamRole
+                                && (n.name.to_lowercase().contains("admin")
+                                    || n.misconfigurations.iter().any(|m| m.contains("Wildcard")))
+                        })
+                    });
+                    has_container && has_admin_role
+                }
+                ToxicTemplate::CrossAccountSensitiveData => {
+                    let has_role_or_lateral = p.edges.iter().any(|e| {
+                        edge_map.get(e.as_str()).map_or(false, |edge| {
+                            edge.edge_type == EdgeType::LateralMove
+                                || edge.edge_type == EdgeType::AssumesRole
+                        })
+                    });
+                    let ends_at_datastore = p.hops.last().and_then(|last| node_map.get(last.as_str())).map_or(false, |n| {
+                        n.node_type == NodeType::DataStore || n.node_type == NodeType::Database
+                    });
+                    has_role_or_lateral && ends_at_datastore
+                }
+            })
+            .cloned()
+            .collect()
+    }
+}
+
+/// Predefined toxic combination pattern templates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ToxicTemplate {
+    InternetCveCrownJewel,
+    ContainerEscapeIamAdmin,
+    CrossAccountSensitiveData,
 }
 
 /// Choke point optimizer computing edge betweenness across all attack paths.

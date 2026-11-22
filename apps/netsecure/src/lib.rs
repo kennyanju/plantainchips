@@ -107,6 +107,93 @@ pub struct MicrosegmentationPolicy {
     pub aws_sg_remediation_commands: Vec<String>,
 }
 
+/// Bitwise IPv4 CIDR and port reachability solver.
+pub struct CidrReachabilitySolver;
+
+impl CidrReachabilitySolver {
+    pub fn ip_to_u32(ip: &str) -> Option<u32> {
+        let parts: Vec<&str> = ip.trim().split('.').collect();
+        if parts.len() != 4 {
+            return None;
+        }
+        let b0 = parts[0].parse::<u8>().ok()? as u32;
+        let b1 = parts[1].parse::<u8>().ok()? as u32;
+        let b2 = parts[2].parse::<u8>().ok()? as u32;
+        let b3 = parts[3].parse::<u8>().ok()? as u32;
+        Some((b0 << 24) | (b1 << 16) | (b2 << 8) | b3)
+    }
+
+    pub fn parse_cidr(cidr: &str) -> Option<(u32, u32)> {
+        let (ip_str, prefix_str) = if let Some((ip, p)) = cidr.split_once('/') {
+            (ip, p)
+        } else {
+            (cidr, "32")
+        };
+        let prefix: u32 = prefix_str.parse().ok()?;
+        if prefix > 32 {
+            return None;
+        }
+        let ip_u32 = Self::ip_to_u32(ip_str)?;
+        let mask = if prefix == 0 {
+            0
+        } else {
+            (!0u32).checked_shl(32 - prefix).unwrap_or(0)
+        };
+        Some((ip_u32 & mask, mask))
+    }
+
+    pub fn cidr_contains_ip(cidr: &str, ip: &str) -> bool {
+        if cidr == "0.0.0.0/0" || cidr == "::/0" {
+            return true;
+        }
+        match (Self::parse_cidr(cidr), Self::ip_to_u32(ip)) {
+            (Some((net, mask)), Some(ip_val)) => (ip_val & mask) == net,
+            _ => false,
+        }
+    }
+
+    pub fn check_reachability(
+        sgs: &[SecurityGroup],
+        src_ip: &str,
+        dst_port: u16,
+        protocol: &str,
+    ) -> bool {
+        for sg in sgs {
+            for r in &sg.rules {
+                if r.direction == "ingress" {
+                    let proto = r.ip_protocol.to_lowercase();
+                    if proto != "-1" && proto != "all" && proto != protocol.to_lowercase() {
+                        continue;
+                    }
+                    let from_p = r.from_port.unwrap_or(0);
+                    let to_p = r.to_port.unwrap_or(65535);
+                    if dst_port as i32 >= from_p && dst_port as i32 <= to_p {
+                        if let Some(ref cidr) = r.cidr_ipv4 {
+                            if Self::cidr_contains_ip(cidr, src_ip) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        false
+    }
+}
+
+/// East-West Service Traffic Matrix Entry.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TrafficMatrixEntry {
+    pub source: String,
+    pub destination: String,
+    pub port: u16,
+    pub protocol: String,
+    pub packets: u64,
+    pub bytes: u64,
+    pub status: String,
+    pub permitted_by_sg: bool,
+}
+
 /// NetSecure Cloud Network Security (CNS) & Microsegmentation engine.
 pub struct NetEngine {
     pub flow_records: Vec<VpcFlowRecord>,

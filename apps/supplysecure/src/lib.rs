@@ -134,10 +134,10 @@ impl Default for SupplyEngine {
 impl SupplyEngine {
     pub fn new() -> Self {
         Self {
-            provenance_records: Vec::new>,
-            signature_records: Vec::new>,
-            dependencies: Vec::new>,
-            findings: Vec::new>,
+            provenance_records: Vec::new(),
+            signature_records: Vec::new(),
+            dependencies: Vec::new(),
+            findings: Vec::new(),
         }
     }
 
@@ -260,6 +260,105 @@ impl SupplyEngine {
                     remediation_action: format!("Audit and replace suspicious package '{}' with legitimate library '{}'.", dep.name, target),
                 });
             }
+        }
+
+        violations
+    }
+
+    /// Evaluates CI/CD workflow definitions (e.g. GitHub Actions YAML) for supply chain flaws.
+    pub fn evaluate_workflow(file_path: &str, yaml_content: &str) -> Vec<SupplyChainViolation> {
+        let mut violations = Vec::new();
+
+        // 1. SUPPLY-CI-001: Unpinned Third-Party Actions
+        for line in yaml_content.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("uses:") || trimmed.starts_with("- uses:") {
+                let action_ref = if let Some((_, rest)) = trimmed.split_once("uses:") {
+                    rest.trim().trim_matches('\'').trim_matches('"')
+                } else {
+                    ""
+                };
+                if let Some((action_name, version)) = action_ref.split_once('@') {
+                    if version.len() < 40 && !action_name.starts_with("./") {
+                        violations.push(SupplyChainViolation {
+                            id: format!("CI-PIN-{}-{}", file_path.replace(['/', '.'], "-"), action_name.replace('/', "-")),
+                            rule_id: "SUPPLY-CI-001".into(),
+                            severity: Severity::High,
+                            title: format!("Unpinned Third-Party GitHub Action '{}'", action_name),
+                            description: format!(
+                                "Workflow references mutable tag '{}' for action '{}' instead of immutable commit SHA.",
+                                version, action_name
+                            ),
+                            resource_id: format!("{}:{}", file_path, action_name),
+                            evidence_detail: format!("Unpinned reference: uses: {}@{}", action_name, version),
+                            remediation_action: format!("Pin action to full 40-character commit SHA (e.g. {}@<commit-sha> # {})", action_name, version),
+                        });
+                    }
+                }
+            }
+        }
+
+        // 2. SUPPLY-CI-002: pull_request_target untrusted checkout (PwnRequest)
+        let has_pr_target = yaml_content.contains("pull_request_target");
+        let has_untrusted_checkout = yaml_content.contains("github.event.pull_request.head.sha")
+            || yaml_content.contains("github.event.pull_request.head.ref");
+
+        if has_pr_target && has_untrusted_checkout {
+            violations.push(SupplyChainViolation {
+                id: format!("CI-PWNREQ-{}", file_path.replace(['/', '.'], "-")),
+                rule_id: "SUPPLY-CI-002".into(),
+                severity: Severity::Critical,
+                title: "Untrusted Code Checkout in pull_request_target Context (PwnRequest)".into(),
+                description: "Workflow triggered on pull_request_target checks out untrusted fork code with repository secrets access.".into(),
+                resource_id: file_path.into(),
+                evidence_detail: "pull_request_target trigger combined with head.sha/ref checkout".into(),
+                remediation_action: "Do not check out untrusted pull request code in pull_request_target workflows. Use pull_request trigger instead.".into(),
+            });
+        }
+
+        // 3. SUPPLY-CI-003: Direct Expression Injection into Shell Run Script
+        let injection_patterns = [
+            "github.event.issue.title",
+            "github.event.pull_request.body",
+            "github.head_ref",
+            "github.event.comment.body",
+        ];
+        for line in yaml_content.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("run:") || trimmed.starts_with("- run:") {
+                for pat in injection_patterns {
+                    if line.contains(&format!("${{{{ {} }}}}", pat)) || line.contains(pat) {
+                        violations.push(SupplyChainViolation {
+                            id: format!("CI-INJ-{}-{}", file_path.replace(['/', '.'], "-"), pat.replace('.', "-")),
+                            rule_id: "SUPPLY-CI-003".into(),
+                            severity: Severity::Critical,
+                            title: format!("Direct Script Injection via Context Expression '{}'", pat),
+                            description: format!(
+                                "Untrusted GitHub context expression '{}' is formatted directly into a shell execution string.",
+                                pat
+                            ),
+                            resource_id: format!("{}:{}", file_path, pat),
+                            evidence_detail: format!("Line contains dangerous inline evaluation: {}", trimmed),
+                            remediation_action: format!("Pass '{}' through intermediate environment variables instead of inline evaluation.", pat),
+                        });
+                        break;
+                    }
+                }
+            }
+        }
+
+        // 4. SUPPLY-CI-004: Overpermissive GITHUB_TOKEN permissions
+        if yaml_content.contains("permissions: write-all") {
+            violations.push(SupplyChainViolation {
+                id: format!("CI-PERM-ALL-{}", file_path.replace(['/', '.'], "-")),
+                rule_id: "SUPPLY-CI-004".into(),
+                severity: Severity::High,
+                title: "Overpermissive write-all Permissions Granted to GITHUB_TOKEN".into(),
+                description: "Workflow grants global write-all permissions to default GITHUB_TOKEN.".into(),
+                resource_id: file_path.into(),
+                evidence_detail: "permissions: write-all found in workflow header".into(),
+                remediation_action: "Specify minimal explicit permissions per job: permissions: contents: read".into(),
+            });
         }
 
         violations

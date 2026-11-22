@@ -95,5 +95,64 @@ class TestLauncherSecureEngine(unittest.TestCase):
         self.assertIn(os_part, ["macos", "windows", "linux"])
         self.assertTrue(len(arch_part) > 0)
 
+    def test_catalog_sort_functions(self):
+        catalog = self.cli.CATALOG
+        sorted_by_name = self.cli.sort_catalog(catalog, sort_by="name")
+        self.assertEqual(sorted_by_name[0]["name"], "AiSecure")
+        self.assertEqual(sorted_by_name[-1]["name"], "WorkloadSecure")
+
+        sorted_by_size_desc = self.cli.sort_catalog(catalog, sort_by="size", sort_desc=True)
+        self.assertGreaterEqual(sorted_by_size_desc[0]["download_size_mb"], sorted_by_size_desc[-1]["download_size_mb"])
+
+    def test_stream_hash_quarantine_on_mismatch(self):
+        corrupted_payload = b"corrupted-binary-payload"
+        expected_digest = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
+        res = self.cli.install_or_update_app("workloadsecure", "0.2.0", corrupted_payload, expected_digest)
+        self.assertEqual(res["status"], "quarantined")
+        self.assertEqual(res["app_id"], "workloadsecure")
+        self.assertIn("quarantined", res["error"].lower())
+
+        target = next(a for a in self.cli.CATALOG if a["id"] == "workloadsecure")
+        self.assertEqual(target["status"], "QUARANTINED")
+
+    def test_update_all_and_rollback_store(self):
+        # Set workloadsecure to update available
+        target = next(a for a in self.cli.CATALOG if a["id"] == "workloadsecure")
+        target["installed_version"] = "0.0.9"
+        target["status"] = "UPDATE_AVAILABLE"
+
+        res = self.cli.update_all_apps()
+        self.assertGreaterEqual(res["total_updated"], 1)
+        self.assertEqual(target["installed_version"], target["latest_version"])
+        self.assertEqual(target["status"], "INSTALLED")
+
+        # Rollback should now revert to 0.0.9
+        rb = self.cli.rollback_app_version("workloadsecure")
+        self.assertEqual(rb["status"], "rolled_back")
+        self.assertEqual(rb["restored_version"], "0.0.9")
+        self.assertEqual(target["installed_version"], "0.0.9")
+
+    def test_resolve_platform_package(self):
+        pkg = self.cli.resolve_platform_package(self.manifest, "macos-aarch64")
+        self.assertIsNotNone(pkg)
+        self.assertEqual(pkg["platform"], "macos-aarch64")
+        self.assertEqual(pkg["format"], "dmg")
+        self.assertTrue(pkg["filename"].endswith(".dmg"))
+
+        pkg_wasm = self.cli.resolve_platform_package(self.manifest, "wasm32")
+        self.assertIsNotNone(pkg_wasm)
+        self.assertEqual(pkg_wasm["format"], "wasm")
+
+    def test_posture_pulse_summary(self):
+        pulse = self.cli.get_posture_pulse()
+        self.assertIn("total_findings", pulse)
+        self.assertIn("by_severity", pulse)
+        self.assertIn("apps_pulse", pulse)
+        self.assertEqual(len(pulse["apps_pulse"]), 14)
+
+        # Ensure workbench routes exist for all apps
+        for a in pulse["apps_pulse"]:
+            self.assertTrue(a["workbench_route"].startswith("web/workbench.html?app="))
+
 if __name__ == "__main__":
     unittest.main()

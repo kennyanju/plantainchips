@@ -104,6 +104,111 @@ pub struct SynthesizedAiGuardrails {
     pub output_guardrail_rules: Vec<String>,
 }
 
+/// Model artifact format and security classification.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ModelFormat {
+    SafeTensors,
+    Gguf,
+    Pickle,
+    Unknown,
+}
+
+/// Result of scanning a machine learning model weight artifact.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ModelArtifactScanResult {
+    pub file_name: String,
+    pub format: ModelFormat,
+    pub is_safe: bool,
+    pub detected_opcodes: Vec<String>,
+    pub findings: Vec<AiSecurityFinding>,
+}
+
+/// Model checkpoint scanner detecting malicious pickle opcodes.
+pub struct ModelArtifactScanner;
+
+impl ModelArtifactScanner {
+    pub fn scan(file_name: &str, bytes: &[u8]) -> ModelArtifactScanResult {
+        if file_name.ends_with(".safetensors") {
+            return ModelArtifactScanResult {
+                file_name: file_name.to_string(),
+                format: ModelFormat::SafeTensors,
+                is_safe: true,
+                detected_opcodes: Vec::new(),
+                findings: Vec::new(),
+            };
+        }
+
+        if file_name.ends_with(".gguf") || bytes.starts_with(b"GGUF") {
+            return ModelArtifactScanResult {
+                file_name: file_name.to_string(),
+                format: ModelFormat::Gguf,
+                is_safe: true,
+                detected_opcodes: Vec::new(),
+                findings: Vec::new(),
+            };
+        }
+
+        let mut dangerous_tokens = Vec::new();
+        let content_str = String::from_utf8_lossy(bytes);
+        let dangerous_keywords = [
+            "os.system",
+            "posix",
+            "subprocess",
+            "__builtin__",
+            "builtins",
+            "eval",
+            "exec",
+            "shutil",
+        ];
+
+        for kw in dangerous_keywords {
+            if content_str.contains(kw) {
+                dangerous_tokens.push(kw.to_string());
+            }
+        }
+
+        // Check for pickle opcodes: 'c' (GLOBAL), 'R' (REDUCE), 0x93 (STACK_GLOBAL)
+        let has_reduce = bytes.contains(&b'R');
+        let has_global = bytes.contains(&b'c') || bytes.contains(&0x93);
+
+        if has_reduce && has_global && !dangerous_tokens.is_empty() {
+            let finding = AiSecurityFinding {
+                id: format!("PICKLE-{}", file_name.replace('.', "-")),
+                rule_id: "AI-SPM-006".into(),
+                category: "Model Artifact Integrity".into(),
+                severity: Severity::Critical,
+                title: "Dangerous Python Pickle Deserialization Opcodes Detected in Model Checkpoint".into(),
+                description: format!(
+                    "Model artifact '{}' contains executable pickle deserialization opcodes (REDUCE/GLOBAL) referencing dangerous symbols ({:?}).",
+                    file_name, dangerous_tokens
+                ),
+                resource_id: format!("model:{}", file_name),
+                evidence_detail: format!("Opcodes REDUCE + GLOBAL with symbols: {}", dangerous_tokens.join(", ")),
+                remediation_guardrail: "Convert model weights checkpoint from unsafe Pickle format to SafeTensors format.".into(),
+            };
+            return ModelArtifactScanResult {
+                file_name: file_name.to_string(),
+                format: ModelFormat::Pickle,
+                is_safe: false,
+                detected_opcodes: dangerous_tokens,
+                findings: vec![finding],
+            };
+        }
+
+        ModelArtifactScanResult {
+            file_name: file_name.to_string(),
+            format: if file_name.ends_with(".pkl") || file_name.ends_with(".pt") || file_name.ends_with(".bin") {
+                ModelFormat::Pickle
+            } else {
+                ModelFormat::Unknown
+            },
+            is_safe: true,
+            detected_opcodes: Vec::new(),
+            findings: Vec::new(),
+        }
+    }
+}
+
 /// Core AI-SPM and LLM security inspection engine.
 pub struct AiEngine {
     pub assets: Vec<AiAsset>,

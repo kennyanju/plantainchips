@@ -63,6 +63,25 @@ class TestCodeSecureEngine(unittest.TestCase):
         self.assertEqual(sbom["components"][0]["name"], "tokio")
         self.assertEqual(sbom["components"][0]["licenses"][0]["license"]["id"], "MIT")
 
+    def test_spdx_sbom_generation(self):
+        spdx = self.cli.generate_spdx_sbom(self.components)
+        self.assertEqual(spdx["spdxVersion"], "SPDX-2.3")
+        self.assertEqual(spdx["dataLicense"], "CC0-1.0")
+        self.assertEqual(len(spdx["packages"]), 3)
+        self.assertEqual(spdx["packages"][0]["name"], "tokio")
+
+    def test_sca_dependency_and_license_auditor(self):
+        components = [
+            {"name": "tokio", "version": "1.35.0", "license": "MIT"},
+            {"name": "gpl-driver", "version": "2.1.0", "license": "GPL-3.0"},
+            {"name": "log4j-core", "version": "2.14.1", "license": "Apache-2.0"}
+        ]
+        sca = self.cli.audit_sca_components(components)
+        self.assertEqual(len(sca), 2)
+        rules = {s["rule_id"] for s in sca}
+        self.assertIn("SCA_COPYLEFT_001", rules)
+        self.assertIn("SCA_VULN_001", rules)
+
     def test_deterministic_source_hash(self):
         for f in self.iac_files:
             digest = hashlib.sha256(f["content"].encode("utf-8")).hexdigest()

@@ -38,6 +38,18 @@ pub enum DataStoreType {
     RdsTable,
     SnowflakeWarehouse,
     BigQueryDataset,
+    DynamoDbTable,
+    ShadowBackup,
+}
+
+/// Directed data lineage edge representing replication flow between stores.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DataLineageEdge {
+    pub source_store_id: String,
+    pub target_store_id: String,
+    pub replication_frequency: String,
+    pub is_cross_region: bool,
+    pub is_production_to_staging: bool,
 }
 
 /// Classified sensitive pattern match with mandatory redacting applied.
@@ -200,7 +212,64 @@ impl SensitiveDataClassifier {
             }
         }
 
+        // 5. API Tokens & High-Entropy Secrets
+        for token in text.split_whitespace() {
+            let cleaned = token.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '_' && c != '-');
+            if cleaned.starts_with("ghp_") || cleaned.starts_with("github_pat_") {
+                let (redacted, fp) = SecretRedactor::redact(cleaned);
+                hits.push(ClassificationHit {
+                    category: ClassificationCategory::Secret,
+                    rule_name: "GITHUB_PERSONAL_ACCESS_TOKEN".into(),
+                    hit_count: 1,
+                    confidence: 1.0,
+                    redacted_sample: redacted,
+                    sha256_fingerprint: fp,
+                });
+            } else if cleaned.starts_with("sk_live_") {
+                let (redacted, fp) = SecretRedactor::redact(cleaned);
+                hits.push(ClassificationHit {
+                    category: ClassificationCategory::Secret,
+                    rule_name: "STRIPE_LIVE_API_KEY".into(),
+                    hit_count: 1,
+                    confidence: 1.0,
+                    redacted_sample: redacted,
+                    sha256_fingerprint: fp,
+                });
+            } else if cleaned.len() >= 20 {
+                let entropy = Self::calculate_shannon_entropy(cleaned);
+                if entropy >= 4.5 {
+                    let (redacted, fp) = SecretRedactor::redact(cleaned);
+                    hits.push(ClassificationHit {
+                        category: ClassificationCategory::Secret,
+                        rule_name: "HIGH_SHANNON_ENTROPY_TOKEN".into(),
+                        hit_count: 1,
+                        confidence: 0.90,
+                        redacted_sample: redacted,
+                        sha256_fingerprint: fp,
+                    });
+                }
+            }
+        }
+
         hits
+    }
+
+    /// Computes Shannon entropy (H = -sum(p * log2(p))) across token character distribution.
+    pub fn calculate_shannon_entropy(token: &str) -> f64 {
+        if token.is_empty() {
+            return 0.0;
+        }
+        let mut counts = std::collections::HashMap::new();
+        for c in token.chars() {
+            *counts.entry(c).or_insert(0usize) += 1;
+        }
+        let len = token.len() as f64;
+        let mut entropy = 0.0;
+        for &count in counts.values() {
+            let p = count as f64 / len;
+            entropy -= p * p.log2();
+        }
+        entropy
     }
 
     pub fn scan_json(val: &serde_json::Value) -> Vec<ClassificationHit> {

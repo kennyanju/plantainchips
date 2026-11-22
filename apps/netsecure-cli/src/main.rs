@@ -199,7 +199,10 @@ async fn run_mcp_server() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         let request: serde_json::Value = serde_json::from_str(&line)?;
-        let id = request.get("id").cloned();
+        let id = match request.get("id") {
+            Some(v) if !v.is_null() => v.clone(),
+            _ => continue, // JSON-RPC notifications must not receive a response
+        };
         let method = request.get("method").and_then(|m| m.as_str()).unwrap_or("");
 
         let response = match method {
@@ -307,15 +310,20 @@ async fn run_mcp_server() -> Result<(), Box<dyn std::error::Error>> {
                     _ => serde_json::json!({ "error": format!("Unknown tool: {}", name) }),
                 };
 
+                let is_error = tool_result.get("error").is_some();
+                let mut res_obj = serde_json::json!({
+                    "content": [{
+                        "type": "text",
+                        "text": serde_json::to_string_pretty(&tool_result)?
+                    }]
+                });
+                if is_error {
+                    res_obj["isError"] = serde_json::json!(true);
+                }
                 serde_json::json!({
                     "jsonrpc": "2.0",
                     "id": id,
-                    "result": {
-                        "content": [{
-                            "type": "text",
-                            "text": serde_json::to_string_pretty(&tool_result)?
-                        }]
-                    }
+                    "result": res_obj
                 })
             }
             _ => serde_json::json!({

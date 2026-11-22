@@ -80,6 +80,64 @@ class TestNetSecureEngine(unittest.TestCase):
         self.assertFalse(self.cli.is_private_ip("8.8.8.8"))
         self.assertFalse(self.cli.is_private_ip("172.32.0.1"))
 
+    def test_bitwise_cidr_and_reachability(self):
+        # Bitwise CIDR containment
+        self.assertTrue(self.cli.cidr_contains_ip("10.0.0.0/16", "10.0.1.5"))
+        self.assertTrue(self.cli.cidr_contains_ip("10.0.0.0/16", "10.0.254.254"))
+        self.assertFalse(self.cli.cidr_contains_ip("10.0.0.0/16", "10.1.0.1"))
+        self.assertTrue(self.cli.cidr_contains_ip("0.0.0.0/0", "198.51.100.2"))
+        self.assertTrue(self.cli.cidr_contains_ip("192.168.1.0/24", "192.168.1.254"))
+        self.assertFalse(self.cli.cidr_contains_ip("192.168.1.0/24", "192.168.2.1"))
+
+        # Symbolic reachability solver across security groups
+        # 1. Public SSH access (port 22) from arbitrary public IP
+        perm_ssh, rules_ssh = self.cli.check_reachability(self.sgs, "203.0.113.5", 22, "tcp")
+        self.assertTrue(perm_ssh)
+        self.assertEqual(len(rules_ssh), 1)
+        self.assertEqual(rules_ssh[0]["rule_id"], "sgr-002")
+
+        # 2. Public DB access (port 5432) from arbitrary public IP
+        perm_db, rules_db = self.cli.check_reachability(self.sgs, "198.51.100.88", 5432, "tcp")
+        self.assertTrue(perm_db)
+        self.assertEqual(len(rules_db), 1)
+        self.assertEqual(rules_db[0]["rule_id"], "sgr-001")
+
+        # 3. Microservice RPC (port 8443) allowed for 10.0.0.0/16
+        perm_rpc, rules_rpc = self.cli.check_reachability(self.sgs, "10.0.1.5", 8443, "tcp")
+        self.assertTrue(perm_rpc)
+        self.assertEqual(len(rules_rpc), 1)
+
+        # 4. Microservice RPC blocked for IP outside 10.0.0.0/16 (e.g. 10.1.5.5)
+        perm_rpc_block, rules_rpc_block = self.cli.check_reachability(self.sgs, "10.1.5.5", 8443, "tcp")
+        self.assertFalse(perm_rpc_block)
+        self.assertEqual(len(rules_rpc_block), 0)
+
+        # 5. Port with no ingress rule (e.g. 3389)
+        perm_rdp, _ = self.cli.check_reachability(self.sgs, "10.0.1.5", 3389, "tcp")
+        self.assertFalse(perm_rdp)
+
+    def test_east_west_traffic_matrix(self):
+        matrix = self.cli.compute_traffic_matrix(self.flows, self.sgs)
+        self.assertEqual(len(matrix), 5)
+
+        # Verify cleartext HTTP flow status
+        http_m = next(m for m in matrix if m["port"] == 80)
+        self.assertEqual(http_m["status"], "VIOLATION")
+
+        # Verify exfiltration flow status
+        exfil_m = next(m for m in matrix if m["destination"] == "198.51.100.88")
+        self.assertEqual(exfil_m["status"], "VIOLATION")
+        self.assertEqual(exfil_m["bytes"], 65000000)
+
+        # Verify legitimate microservice flow
+        rpc_m = next(m for m in matrix if m["port"] == 8443)
+        self.assertEqual(rpc_m["status"], "PERMITTED")
+        self.assertTrue(rpc_m["permitted_by_sg"])
+
+        # Verify blocked flow
+        reject_m = next(m for m in matrix if m["port"] == 445)
+        self.assertEqual(reject_m["status"], "DENIED")
+
     def test_deterministic_flow_hash(self):
         for fl in self.flows:
             raw = f"{fl['interface_id']}:{fl['src_addr']}:{fl['dst_addr']}:{fl['src_port']}:{fl['dst_port']}:{fl['protocol']}"

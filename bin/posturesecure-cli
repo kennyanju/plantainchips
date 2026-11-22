@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import sys, os, json, argparse, hashlib, datetime
+import sys, os, json, argparse, hashlib, datetime, re, tempfile
 
 RULES = [
     {
@@ -19,7 +19,26 @@ RULES = [
   block_public_policy     = true
   ignore_public_acls      = true
   restrict_public_buckets = true
-}"""
+}""",
+        "remediation_cli": "aws s3api put-public-access-block --bucket {{RESOURCE_ID}} --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true"
+    },
+    {
+        "id": "CIS-AWS-3.0-2.1.2",
+        "title": "S3 Buckets Must Enable Object Versioning",
+        "severity": "MEDIUM",
+        "provider": "aws",
+        "resource_type": "aws-s3-bucket",
+        "rql": "config from cloud.resource where cloud.type = 'aws' and api.name = 'aws-s3-bucket' and json.rule = versioning.status != 'Enabled'",
+        "description": "S3 bucket object versioning protects against accidental overwrites and ransomware destruction.",
+        "framework_mappings": ["CIS AWS v3.0: 2.1.2", "NIST 800-53: CP-9"],
+        "check": lambda r: r.get("state", {}).get("versioning", {}).get("status") != "Enabled",
+        "remediation_hcl": """resource "aws_s3_bucket_versioning" "{{RESOURCE_ID}}_versioning" {
+  bucket = aws_s3_bucket.{{RESOURCE_ID}}.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}""",
+        "remediation_cli": "aws s3api put-bucket-versioning --bucket {{RESOURCE_ID}} --versioning-configuration Status=Enabled"
     },
     {
         "id": "CIS-AWS-3.0-2.2.1",
@@ -34,7 +53,56 @@ RULES = [
         "remediation_hcl": """resource "aws_db_instance" "{{RESOURCE_ID}}" {
   storage_encrypted = true
   kms_key_id        = aws_kms_key.rds.arn
-}"""
+}""",
+        "remediation_cli": "aws rds modify-db-instance --db-instance-identifier {{RESOURCE_ID}} --storage-encrypted --apply-immediately"
+    },
+    {
+        "id": "CIS-AWS-3.0-2.2.2",
+        "title": "RDS Database Instances Must Prohibit Public Accessibility",
+        "severity": "CRITICAL",
+        "provider": "aws",
+        "resource_type": "aws-rds-instance",
+        "rql": "config from cloud.resource where cloud.type = 'aws' and api.name = 'aws-rds-instance' and json.rule = publiclyAccessible is true",
+        "description": "RDS instances must not possess public IP addresses accessible from the global Internet.",
+        "framework_mappings": ["CIS AWS v3.0: 2.2.2", "PCI-DSS v4.0: 1.3.1", "SOC 2: CC6.6"],
+        "check": lambda r: r.get("state", {}).get("publiclyAccessible", False),
+        "remediation_hcl": """resource "aws_db_instance" "{{RESOURCE_ID}}" {
+  publicly_accessible = false
+}""",
+        "remediation_cli": "aws rds modify-db-instance --db-instance-identifier {{RESOURCE_ID}} --no-publicly-accessible --apply-immediately"
+    },
+    {
+        "id": "CIS-AWS-3.0-2.3.1",
+        "title": "EBS Volumes Must Enable Encryption by Default",
+        "severity": "HIGH",
+        "provider": "aws",
+        "resource_type": "aws-ebs-volume",
+        "rql": "config from cloud.resource where cloud.type = 'aws' and api.name = 'aws-ebs-volume' and json.rule = encrypted is false",
+        "description": "Elastic Block Store volumes must be encrypted at rest using AWS KMS.",
+        "framework_mappings": ["CIS AWS v3.0: 2.3.1", "NIST 800-53: SC-28", "ISO 27001: A.10.1.1"],
+        "check": lambda r: not r.get("state", {}).get("encrypted", False),
+        "remediation_hcl": """resource "aws_ebs_encryption_by_default" "ebs_enc" {
+  enabled = true
+}""",
+        "remediation_cli": "aws ec2 enable-ebs-encryption-by-default"
+    },
+    {
+        "id": "CIS-AWS-3.0-2.4.1",
+        "title": "EC2 Instances Must Enforce IMDSv2 Token Requirement",
+        "severity": "HIGH",
+        "provider": "aws",
+        "resource_type": "aws-ec2-instance",
+        "rql": "config from cloud.resource where cloud.type = 'aws' and api.name = 'aws-ec2-instance' and json.rule = metadataOptions.httpTokens != 'required'",
+        "description": "Instance Metadata Service Version 2 prevents SSRF vulnerabilities from harvesting IAM role credentials.",
+        "framework_mappings": ["CIS AWS v3.0: 2.4.1", "MITRE ATT&CK: T1552.005", "SOC 2: CC6.1"],
+        "check": lambda r: r.get("state", {}).get("metadataOptions", {}).get("httpTokens") != "required",
+        "remediation_hcl": """resource "aws_instance" "{{RESOURCE_ID}}" {
+  metadata_options {
+    http_tokens   = "required"
+    http_endpoint = "enabled"
+  }
+}""",
+        "remediation_cli": "aws ec2 modify-instance-metadata-options --instance-id {{RESOURCE_ID}} --http-tokens required --http-endpoint enabled"
     },
     {
         "id": "CIS-AWS-3.0-4.1",
@@ -56,7 +124,61 @@ RULES = [
   protocol          = "tcp"
   cidr_blocks       = ["10.0.0.0/8"]
   security_group_id = aws_security_group.{{RESOURCE_ID}}.id
-}"""
+}""",
+        "remediation_cli": "aws ec2 revoke-security-group-ingress --group-id {{RESOURCE_ID}} --protocol tcp --port 22 --cidr 0.0.0.0/0"
+    },
+    {
+        "id": "CIS-AWS-3.0-4.2",
+        "title": "Security Groups Must Not Permit Ingress From 0.0.0.0/0 to Port 3389",
+        "severity": "CRITICAL",
+        "provider": "aws",
+        "resource_type": "aws-security-group",
+        "rql": "config from cloud.resource where cloud.type = 'aws' and api.name = 'aws-security-group' and json.rule = ipPermissions[].fromPort = 3389 and json.rule = ipPermissions[].ipRanges[].cidrIp = '0.0.0.0/0'",
+        "description": "Security groups must not allow open ingress to port 3389 (RDP) from the public Internet.",
+        "framework_mappings": ["CIS AWS v3.0: 4.2", "PCI-DSS v4.0: 1.3.1", "SOC 2: CC6.6"],
+        "check": lambda r: any(
+            p.get("fromPort") == 3389 and any(rng.get("cidrIp") == "0.0.0.0/0" for rng in p.get("ipRanges", []))
+            for p in r.get("state", {}).get("ipPermissions", [])
+        ),
+        "remediation_hcl": """resource "aws_security_group_rule" "restricted_rdp" {
+  type              = "ingress"
+  from_port         = 3389
+  to_port           = 3389
+  protocol          = "tcp"
+  cidr_blocks       = ["10.0.0.0/8"]
+  security_group_id = aws_security_group.{{RESOURCE_ID}}.id
+}""",
+        "remediation_cli": "aws ec2 revoke-security-group-ingress --group-id {{RESOURCE_ID}} --protocol tcp --port 3389 --cidr 0.0.0.0/0"
+    },
+    {
+        "id": "CIS-AWS-3.0-3.1",
+        "title": "CloudTrail Must Be Configured Across All Multi-Region Accounts",
+        "severity": "HIGH",
+        "provider": "aws",
+        "resource_type": "aws-cloudtrail-trail",
+        "rql": "config from cloud.resource where cloud.type = 'aws' and api.name = 'aws-cloudtrail-trail' and json.rule = isMultiRegionTrail is false",
+        "description": "CloudTrail must record events in all AWS regions to guarantee comprehensive forensic audit trails.",
+        "framework_mappings": ["CIS AWS v3.0: 3.1", "PCI-DSS v4.0: 10.2.1", "SOC 2: CC7.2"],
+        "check": lambda r: not r.get("state", {}).get("isMultiRegionTrail", False),
+        "remediation_hcl": """resource "aws_cloudtrail" "{{RESOURCE_ID}}" {
+  is_multi_region_trail = true
+}""",
+        "remediation_cli": "aws cloudtrail update-trail --name {{RESOURCE_ID}} --is-multi-region-trail"
+    },
+    {
+        "id": "CIS-AWS-3.0-2.8",
+        "title": "KMS Customer Managed Keys Must Enable Automatic Rotation",
+        "severity": "MEDIUM",
+        "provider": "aws",
+        "resource_type": "aws-kms-key",
+        "rql": "config from cloud.resource where cloud.type = 'aws' and api.name = 'aws-kms-key' and json.rule = keyRotationEnabled is false",
+        "description": "KMS customer managed encryption keys should rotate annual key material automatically.",
+        "framework_mappings": ["CIS AWS v3.0: 2.8", "PCI-DSS v4.0: 3.6.4", "ISO 27001: A.10.1.2"],
+        "check": lambda r: not r.get("state", {}).get("keyRotationEnabled", False),
+        "remediation_hcl": """resource "aws_kms_key" "{{RESOURCE_ID}}" {
+  enable_key_rotation = true
+}""",
+        "remediation_cli": "aws kms enable-key-rotation --key-id {{RESOURCE_ID}}"
     },
     {
         "id": "CIS-AZURE-2.1-1",
@@ -70,7 +192,76 @@ RULES = [
         "check": lambda r: not r.get("state", {}).get("properties", {}).get("supportsHttpsTrafficOnly", True),
         "remediation_hcl": """resource "azurerm_storage_account" "{{RESOURCE_ID}}" {
   enable_https_traffic_only = true
-}"""
+}""",
+        "remediation_cli": "az storage account update --name {{RESOURCE_ID}} --https-only true"
+    },
+    {
+        "id": "CIS-AZURE-2.1-2",
+        "title": "Azure Storage Accounts Must Prohibit Public Blob Access",
+        "severity": "CRITICAL",
+        "provider": "azure",
+        "resource_type": "azure-storage-account",
+        "rql": "config from cloud.resource where cloud.type = 'azure' and api.name = 'azure-storage-account' and json.rule = properties.allowBlobPublicAccess is true",
+        "description": "Public anonymous read access to blobs in Azure storage accounts must be disabled.",
+        "framework_mappings": ["CIS Azure v2.1: 2.2", "SOC 2: CC6.1", "PCI-DSS v4.0: 1.2.1"],
+        "check": lambda r: r.get("state", {}).get("properties", {}).get("allowBlobPublicAccess", False),
+        "remediation_hcl": """resource "azurerm_storage_account" "{{RESOURCE_ID}}" {
+  allow_nested_items_to_be_public = false
+}""",
+        "remediation_cli": "az storage account update --name {{RESOURCE_ID}} --allow-blob-public-access false"
+    },
+    {
+        "id": "CIS-AZURE-8.1",
+        "title": "Azure Key Vaults Must Enable Purge Protection and Soft Delete",
+        "severity": "HIGH",
+        "provider": "azure",
+        "resource_type": "azure-key-vault",
+        "rql": "config from cloud.resource where cloud.type = 'azure' and api.name = 'azure-key-vault' and json.rule = properties.enablePurgeProtection is false",
+        "description": "Purge protection prevents accidental or malicious immediate destruction of cryptographic keys and secrets.",
+        "framework_mappings": ["CIS Azure v2.1: 8.1", "NIST 800-53: SC-12"],
+        "check": lambda r: not r.get("state", {}).get("properties", {}).get("enablePurgeProtection", False),
+        "remediation_hcl": """resource "azurerm_key_vault" "{{RESOURCE_ID}}" {
+  purge_protection_enabled = true
+}""",
+        "remediation_cli": "az keyvault update --name {{RESOURCE_ID}} --enable-purge-protection true"
+    },
+    {
+        "id": "CIS-AZURE-5.1",
+        "title": "Azure NSGs Must Not Permit Ingress to Port 22 From Any Source",
+        "severity": "CRITICAL",
+        "provider": "azure",
+        "resource_type": "azure-network-security-group",
+        "rql": "config from cloud.resource where cloud.type = 'azure' and api.name = 'azure-network-security-group' and json.rule = securityRules[].destinationPortRange = 22 and json.rule = securityRules[].sourceAddressPrefix = '*'",
+        "description": "Network security groups should restrict inbound SSH access to private corporate IP ranges.",
+        "framework_mappings": ["CIS Azure v2.1: 5.1", "PCI-DSS v4.0: 1.3.1"],
+        "check": lambda r: any(
+            (sr.get("destinationPortRange") == "22" or sr.get("destinationPortRange") == 22)
+            and sr.get("sourceAddressPrefix") in ("*", "0.0.0.0/0", "Internet")
+            and sr.get("access") == "Allow"
+            for sr in r.get("state", {}).get("securityRules", [])
+        ),
+        "remediation_hcl": """resource "azurerm_network_security_rule" "restricted_ssh" {
+  access                      = "Deny"
+  destination_port_range     = "22"
+  direction                   = "Inbound"
+  network_security_group_name = azurerm_network_security_group.{{RESOURCE_ID}}.name
+}""",
+        "remediation_cli": "az network nsg rule delete --nsg-name {{RESOURCE_ID}} --name Allow-SSH-Internet"
+    },
+    {
+        "id": "CIS-AZURE-4.2",
+        "title": "Azure SQL Databases Must Enable Transparent Data Encryption",
+        "severity": "HIGH",
+        "provider": "azure",
+        "resource_type": "azure-sql-database",
+        "rql": "config from cloud.resource where cloud.type = 'azure' and api.name = 'azure-sql-database' and json.rule = transparentDataEncryption.status != 'Enabled'",
+        "description": "Transparent Data Encryption protects data at rest against unauthorized physical storage access.",
+        "framework_mappings": ["CIS Azure v2.1: 4.2", "PCI-DSS v4.0: 3.4.1", "HIPAA: 164.312(a)(2)(iv)"],
+        "check": lambda r: r.get("state", {}).get("transparentDataEncryption", {}).get("status") != "Enabled",
+        "remediation_hcl": """resource "azurerm_mssql_database_extended_auditing_policy" "tde" {
+  database_id = azurerm_mssql_database.{{RESOURCE_ID}}.id
+}""",
+        "remediation_cli": "az sql db tde set --database {{RESOURCE_ID}} --status Enabled"
     },
     {
         "id": "CIS-GCP-2.0-3.1",
@@ -84,24 +275,162 @@ RULES = [
         "check": lambda r: not r.get("state", {}).get("uniformBucketLevelAccess", {}).get("enabled", True),
         "remediation_hcl": """resource "google_storage_bucket" "{{RESOURCE_ID}}" {
   uniform_bucket_level_access = true
-}"""
+}""",
+        "remediation_cli": "gcloud storage buckets update gs://{{RESOURCE_ID}} --uniform-bucket-level-access"
+    },
+    {
+        "id": "CIS-GCP-2.0-3.2",
+        "title": "Cloud Storage Buckets Must Prohibit Public allUsers IAM Bindings",
+        "severity": "CRITICAL",
+        "provider": "gcp",
+        "resource_type": "gcp-storage-bucket",
+        "rql": "config from cloud.resource where cloud.type = 'gcp' and api.name = 'gcp-storage-bucket' and json.rule = iamPolicy.bindings[].members contains 'allUsers'",
+        "description": "Storage buckets should enforce public access prevention and prohibit anonymous global access.",
+        "framework_mappings": ["CIS GCP v2.0: 3.2", "PCI-DSS v4.0: 1.2.1", "SOC 2: CC6.1"],
+        "check": lambda r: any(
+            "allUsers" in b.get("members", []) or "allAuthenticatedUsers" in b.get("members", [])
+            for b in r.get("state", {}).get("iamPolicy", {}).get("bindings", [])
+        ),
+        "remediation_hcl": """resource "google_storage_bucket" "{{RESOURCE_ID}}" {
+  public_access_prevention = "enforced"
+}""",
+        "remediation_cli": "gcloud storage buckets update gs://{{RESOURCE_ID}} --public-access-prevention"
+    },
+    {
+        "id": "CIS-GCP-2.0-6.1",
+        "title": "Cloud SQL Instances Must Prohibit Public IP Addresses",
+        "severity": "CRITICAL",
+        "provider": "gcp",
+        "resource_type": "gcp-sql-instance",
+        "rql": "config from cloud.resource where cloud.type = 'gcp' and api.name = 'gcp-sql-instance' and json.rule = settings.ipConfiguration.ipv4Enabled is true",
+        "description": "Cloud SQL databases should be configured strictly with Private Service Connect or VPC Private IP.",
+        "framework_mappings": ["CIS GCP v2.0: 6.1", "PCI-DSS v4.0: 1.3.1", "SOC 2: CC6.6"],
+        "check": lambda r: r.get("state", {}).get("settings", {}).get("ipConfiguration", {}).get("ipv4Enabled", False),
+        "remediation_hcl": """resource "google_sql_database_instance" "{{RESOURCE_ID}}" {
+  settings {
+    ip_configuration {
+      ipv4_enabled    = false
+      private_network = google_compute_network.vpc.id
+    }
+  }
+}""",
+        "remediation_cli": "gcloud sql instances patch {{RESOURCE_ID}} --no-assign-ip"
+    },
+    {
+        "id": "CIS-GCP-2.0-4.1",
+        "title": "Compute Engine Instances Must Enable OS Login",
+        "severity": "MEDIUM",
+        "provider": "gcp",
+        "resource_type": "gcp-compute-instance",
+        "rql": "config from cloud.resource where cloud.type = 'gcp' and api.name = 'gcp-compute-instance' and json.rule = metadata.enable-oslogin != 'TRUE'",
+        "description": "OS Login links Linux user accounts to Google Identity credentials and enforces organization 2FA.",
+        "framework_mappings": ["CIS GCP v2.0: 4.1", "NIST 800-53: AC-2"],
+        "check": lambda r: r.get("state", {}).get("metadata", {}).get("enable-oslogin") != "TRUE",
+        "remediation_hcl": """resource "google_compute_instance" "{{RESOURCE_ID}}" {
+  metadata = {
+    enable-oslogin = "TRUE"
+  }
+}""",
+        "remediation_cli": "gcloud compute instances add-metadata {{RESOURCE_ID}} --metadata enable-oslogin=TRUE"
+    },
+    {
+        "id": "CIS-K8S-1.8-5.2.1",
+        "title": "Kubernetes Pods Must Prohibit Privileged Containers",
+        "severity": "CRITICAL",
+        "provider": "k8s",
+        "resource_type": "k8s-pod",
+        "rql": "config from cloud.resource where cloud.type = 'k8s' and api.name = 'k8s-pod' and json.rule = spec.containers[].securityContext.privileged is true",
+        "description": "Privileged containers share direct host kernel devices and allow container breakout attacks.",
+        "framework_mappings": ["CIS K8s v1.8: 5.2.1", "MITRE ATT&CK: T1611"],
+        "check": lambda r: any(
+            c.get("securityContext", {}).get("privileged", False)
+            for c in r.get("state", {}).get("spec", {}).get("containers", [])
+        ),
+        "remediation_hcl": """# Kubernetes SecurityContext Fix
+securityContext:
+  privileged: false
+  allowPrivilegeEscalation: false""",
+        "remediation_cli": "kubectl patch pod {{RESOURCE_ID}} --type='json' -p='[{\"op\": \"replace\", \"path\": \"/spec/containers/0/securityContext/privileged\", \"value\": false}]'"
     }
 ]
 
-def evaluate_inventory(inventory):
+SUPPRESSIONS = {}
+
+def get_cloudsecure_dir():
+    custom = os.environ.get("CLOUDSECURE_HOME")
+    if custom:
+        os.makedirs(custom, exist_ok=True)
+        return custom
+    home_dir = os.path.expanduser("~/.cloudsecure")
+    try:
+        os.makedirs(home_dir, exist_ok=True)
+        with tempfile.NamedTemporaryFile(dir=home_dir, prefix=".writetest_", delete=True) as _:
+            pass
+        return home_dir
+    except Exception:
+        local_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".cloudsecure"))
+        os.makedirs(local_dir, exist_ok=True)
+        return local_dir
+
+def get_suppressions_file():
+    return os.path.join(get_cloudsecure_dir(), "posture_suppressions.json")
+
+def load_suppressions():
+    global SUPPRESSIONS
+    supp_file = get_suppressions_file()
+    if os.path.exists(supp_file):
+        try:
+            with open(supp_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    SUPPRESSIONS.update(data)
+        except Exception:
+            pass
+
+def save_suppressions():
+    try:
+        supp_file = get_suppressions_file()
+        os.makedirs(os.path.dirname(supp_file), exist_ok=True)
+        with open(supp_file, "w", encoding="utf-8") as f:
+            json.dump(SUPPRESSIONS, f, indent=2)
+    except Exception:
+        pass
+
+def get_nested(obj, path):
+    parts = path.split(".")
+    curr = obj
+    for p in parts:
+        if isinstance(curr, dict):
+            curr = curr.get(p)
+        else:
+            return None
+    return curr
+
+def evaluate_inventory(inventory, provider_filter=None, include_suppressed=False):
     findings = []
     for res in inventory:
+        prov = res.get("provider", "").lower()
+        if provider_filter and provider_filter.lower() != "all" and prov != provider_filter.lower():
+            continue
+
         for rule in RULES:
-            if res.get("provider") == rule["provider"] and res.get("resource_type") == rule["resource_type"]:
+            if prov == rule["provider"].lower() and res.get("resource_type") == rule["resource_type"]:
                 if rule["check"](res):
+                    fid = f"{rule['id']}-{res.get('id')}"
+                    is_suppressed = fid in SUPPRESSIONS
+                    if is_suppressed and not include_suppressed:
+                        continue
+
                     state_hash = hashlib.sha256(json.dumps(res.get("state", {}), sort_keys=True).encode()).hexdigest()
                     hcl = rule["remediation_hcl"].replace("{{RESOURCE_ID}}", res.get("name", "target"))
+                    cli = rule.get("remediation_cli", "").replace("{{RESOURCE_ID}}", res.get("name", "target"))
                     findings.append({
-                        "id": f"{rule['id']}-{res.get('id')}",
+                        "id": fid,
                         "rule_id": rule["id"],
                         "title": rule["title"],
                         "severity": rule["severity"],
-                        "status": "FAIL",
+                        "status": "SUPPRESSED" if is_suppressed else "FAIL",
+                        "suppression_reason": SUPPRESSIONS.get(fid) if is_suppressed else None,
                         "provider": res.get("provider"),
                         "account_id": res.get("account_id"),
                         "region": res.get("region"),
@@ -120,13 +449,112 @@ def evaluate_inventory(inventory):
                         "remediation": {
                             "format": "terraform_hcl",
                             "code": hcl,
+                            "cli_command": cli,
                             "sha256_hash": hashlib.sha256(hcl.encode()).hexdigest()
                         },
                         "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()
                     })
     return findings
 
+def evaluate_rql_query(inventory, query_str):
+    # Basic RQL config evaluator for live filtering
+    # e.g.: config from cloud.resource where cloud.type = 'aws' and api.name = 'aws-s3-bucket'
+    where_match = re.search(r"where\s+(.*)", query_str, re.IGNORECASE)
+    if not where_match:
+        return inventory
+
+    clauses_str = where_match.group(1).strip()
+    clauses = [c.strip() for c in re.split(r"\s+and\s+", clauses_str, flags=re.IGNORECASE)]
+
+    results = []
+    for res in inventory:
+        matched = True
+        for clause in clauses:
+            eq_m = re.match(r"^([\w\.]+)\s*=\s*['\"]?([^'\"]+)['\"]?$", clause)
+            neq_m = re.match(r"^([\w\.]+)\s*!=\s*['\"]?([^'\"]+)['\"]?$", clause)
+            is_false_m = re.match(r"^([\w\.]+)\s+is\s+false$", clause, re.IGNORECASE)
+            is_true_m = re.match(r"^([\w\.]+)\s+is\s+true$", clause, re.IGNORECASE)
+
+            if eq_m:
+                field, val = eq_m.group(1), eq_m.group(2)
+                f_val = str(get_nested(res, field) or "")
+                if field == "cloud.type":
+                    f_val = res.get("provider", "")
+                elif field == "api.name":
+                    f_val = res.get("resource_type", "")
+                if f_val.lower() != val.lower():
+                    matched = False
+                    break
+            elif neq_m:
+                field, val = neq_m.group(1), neq_m.group(2)
+                f_val = str(get_nested(res, field) or "")
+                if field == "cloud.type":
+                    f_val = res.get("provider", "")
+                elif field == "api.name":
+                    f_val = res.get("resource_type", "")
+                if f_val.lower() == val.lower():
+                    matched = False
+                    break
+            elif is_false_m:
+                field = is_false_m.group(1)
+                f_val = get_nested(res.get("state", {}), field)
+                if f_val is not False:
+                    matched = False
+                    break
+            elif is_true_m:
+                field = is_true_m.group(1)
+                f_val = get_nested(res.get("state", {}), field)
+                if f_val is not True:
+                    matched = False
+                    break
+
+        if matched:
+            results.append(res)
+    return results
+
+def detect_drift(baseline_inventory, current_inventory):
+    base_map = {r["id"]: r for r in baseline_inventory}
+    drift_records = []
+
+    for curr in current_inventory:
+        rid = curr.get("id")
+        base = base_map.get(rid)
+        if not base:
+            continue
+
+        base_hash = hashlib.sha256(json.dumps(base.get("state", {}), sort_keys=True).encode()).hexdigest()
+        curr_hash = hashlib.sha256(json.dumps(curr.get("state", {}), sort_keys=True).encode()).hexdigest()
+
+        if base_hash != curr_hash:
+            diffs = []
+            b_state = base.get("state", {})
+            c_state = curr.get("state", {})
+            for k, c_val in c_state.items():
+                b_val = b_state.get(k)
+                if b_val != c_val:
+                    diffs.append({
+                        "attribute": f"state.{k}",
+                        "baseline_value": b_val,
+                        "current_value": c_val
+                    })
+            drift_records.append({
+                "resource_id": rid,
+                "resource_arn": curr.get("arn"),
+                "baseline_hash": base_hash,
+                "current_hash": curr_hash,
+                "attribute_diffs": diffs
+            })
+
+    return drift_records
+
+def suppress_finding(finding_id, reason="Approved exception", persist=False):
+    SUPPRESSIONS[finding_id] = reason
+    if persist:
+        save_suppressions()
+    return {"status": "suppressed", "finding_id": finding_id, "reason": reason}
+
 def run_mcp():
+    load_suppressions()
     for line in sys.stdin:
         if not line.strip():
             continue
@@ -136,7 +564,11 @@ def run_mcp():
             continue
         req_id = req.get("id")
         method = req.get("method")
-        
+
+        if req_id is None:
+            # JSON-RPC / MCP notifications do not have an ID and must not receive a response
+            continue
+
         if method == "initialize":
             resp = {
                 "jsonrpc": "2.0",
@@ -158,18 +590,63 @@ def run_mcp():
                             "description": "Evaluate multi-cloud inventory against standard CIS benchmarks",
                             "inputSchema": {
                                 "type": "object",
-                                "properties": {"inventory_json": {"type": "string"}},
+                                "properties": {
+                                    "inventory_json": {"type": "string"},
+                                    "provider": {"type": "string"},
+                                    "include_suppressed": {"type": "boolean"}
+                                },
                                 "required": ["inventory_json"]
                             }
                         },
                         {
+                            "name": "posture_query_rql",
+                            "description": "Execute ad-hoc RQL config query against cloud inventory",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "query": {"type": "string"},
+                                    "inventory_json": {"type": "string"}
+                                },
+                                "required": ["query", "inventory_json"]
+                            }
+                        },
+                        {
+                            "name": "posture_detect_drift",
+                            "description": "Detect attribute-level configuration drift between baseline and current cloud states",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "baseline_json": {"type": "string"},
+                                    "current_json": {"type": "string"}
+                                },
+                                "required": ["baseline_json", "current_json"]
+                            }
+                        },
+                        {
+                            "name": "posture_suppress_finding",
+                            "description": "Suppress a specific CSPM finding with documented business justification",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "finding_id": {"type": "string"},
+                                    "reason": {"type": "string"}
+                                },
+                                "required": ["finding_id", "reason"]
+                            }
+                        },
+                        {
                             "name": "posture_generate_remediation",
-                            "description": "Generate Terraform HCL patch for a rule ID",
+                            "description": "Generate Terraform HCL patch and Cloud CLI commands for a rule ID",
                             "inputSchema": {
                                 "type": "object",
                                 "properties": {"rule_id": {"type": "string"}, "resource_name": {"type": "string"}},
                                 "required": ["rule_id", "resource_name"]
                             }
+                        },
+                        {
+                            "name": "posture_list_rules",
+                            "description": "List all active multi-cloud CSPM rules in standard policy pack",
+                            "inputSchema": {"type": "object", "properties": {}}
                         }
                     ]
                 }
@@ -180,51 +657,114 @@ def run_mcp():
             args = params.get("arguments", {})
             if name == "posture_evaluate_compliance":
                 raw_inv = args.get("inventory_json", "[]")
+                prov = args.get("provider")
+                inc_sup = args.get("include_suppressed", False)
                 try:
                     inv = json.loads(raw_inv)
-                    findings = evaluate_inventory(inv)
+                    findings = evaluate_inventory(inv, provider_filter=prov, include_suppressed=inc_sup)
                     tool_res = {"findings_count": len(findings), "findings": findings}
                 except Exception as e:
                     tool_res = {"error": str(e)}
+            elif name == "posture_query_rql":
+                q = args.get("query", "")
+                raw_inv = args.get("inventory_json", "[]")
+                try:
+                    inv = json.loads(raw_inv)
+                    matched = evaluate_rql_query(inv, q)
+                    tool_res = {"query": q, "matched_count": len(matched), "resources": matched}
+                except Exception as e:
+                    tool_res = {"error": str(e)}
+            elif name == "posture_detect_drift":
+                b_raw = args.get("baseline_json", "[]")
+                c_raw = args.get("current_json", "[]")
+                try:
+                    b_inv = json.loads(b_raw)
+                    c_inv = json.loads(c_raw)
+                    drift = detect_drift(b_inv, c_inv)
+                    tool_res = {"drift_count": len(drift), "drift_records": drift}
+                except Exception as e:
+                    tool_res = {"error": str(e)}
+            elif name == "posture_suppress_finding":
+                fid = args.get("finding_id", "")
+                reason = args.get("reason", "Approved exception")
+                tool_res = suppress_finding(fid, reason, persist=True)
             elif name == "posture_generate_remediation":
                 rid = args.get("rule_id", "")
                 rname = args.get("resource_name", "target")
                 match = next((r for r in RULES if r["id"].lower() == rid.lower()), None)
                 if match:
                     patch = match["remediation_hcl"].replace("{{RESOURCE_ID}}", rname)
-                    tool_res = {"rule_id": match["id"], "terraform_patch": patch}
+                    cli = match.get("remediation_cli", "").replace("{{RESOURCE_ID}}", rname)
+                    tool_res = {
+                        "rule_id": match["id"],
+                        "terraform_patch": patch,
+                        "cli_command": cli
+                    }
                 else:
                     tool_res = {"error": f"Rule {rid} not found"}
+            elif name == "posture_list_rules":
+                rule_summaries = [
+                    {
+                        "id": r["id"],
+                        "title": r["title"],
+                        "severity": r["severity"],
+                        "provider": r["provider"],
+                        "resource_type": r["resource_type"],
+                        "framework_mappings": r["framework_mappings"]
+                    }
+                    for r in RULES
+                ]
+                tool_res = {"total_rules": len(RULES), "rules": rule_summaries}
             else:
                 tool_res = {"error": f"Unknown tool: {name}"}
-            
+
+            call_result = {
+                "content": [{"type": "text", "text": json.dumps(tool_res, indent=2)}]
+            }
+            if isinstance(tool_res, dict) and "error" in tool_res:
+                call_result["isError"] = True
             resp = {
                 "jsonrpc": "2.0",
                 "id": req_id,
-                "result": {
-                    "content": [{"type": "text", "text": json.dumps(tool_res, indent=2)}]
-                }
+                "result": call_result
             }
         else:
             resp = {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": "Method not found"}}
-        
+
         sys.stdout.write(json.dumps(resp) + "\n")
         sys.stdout.flush()
 
 def main():
-    parser = argparse.ArgumentParser(description="PostureSecure CLI")
+    parser = argparse.ArgumentParser(description="PostureSecure CLI: Multi-Cloud CSPM Engine")
     parser.add_argument("--mcp", action="store_true", help="Run Model Context Protocol stdio server")
     subparsers = parser.add_subparsers(dest="subcommand")
-    
-    scan_p = subparsers.add_parser("scan", help="Scan cloud inventory")
+
+    scan_p = subparsers.add_parser("scan", help="Scan cloud inventory against CIS benchmarks")
     scan_p.add_argument("--input", "-i", required=True, help="Path to cloud inventory JSON")
+    scan_p.add_argument("--provider", "-p", choices=["aws", "azure", "gcp", "k8s", "all"], default="all")
+    scan_p.add_argument("--include-suppressed", action="store_true", help="Include suppressed findings")
     scan_p.add_argument("--format", "-f", choices=["table", "json", "sarif"], default="table")
-    
-    rem_p = subparsers.add_parser("remediate", help="Generate remediation")
+
+    rql_p = subparsers.add_parser("rql", help="Execute ad-hoc RQL config query against cloud inventory")
+    rql_p.add_argument("--query", "-q", required=True, help="RQL query string")
+    rql_p.add_argument("--input", "-i", required=True, help="Path to cloud inventory JSON")
+
+    drift_p = subparsers.add_parser("drift", help="Detect configuration drift between baseline and current")
+    drift_p.add_argument("--baseline", "-b", required=True, help="Baseline inventory JSON")
+    drift_p.add_argument("--current", "-c", required=True, help="Current inventory JSON")
+
+    suppress_p = subparsers.add_parser("suppress", help="Suppress a finding ID with documented reason")
+    suppress_p.add_argument("--finding-id", required=True, help="Finding ID to suppress")
+    suppress_p.add_argument("--reason", required=True, help="Business justification reason")
+
+    rem_p = subparsers.add_parser("remediate", help="Generate remediation code (Terraform HCL and CLI)")
     rem_p.add_argument("--rule", "-r", required=True, help="Rule ID")
     rem_p.add_argument("--resource-name", "-n", default="target", help="Resource Name")
 
+    subparsers.add_parser("rules", help="List all available CSPM rules")
+
     args = parser.parse_args()
+    load_suppressions()
     if args.mcp:
         run_mcp()
         return
@@ -232,15 +772,16 @@ def main():
     if args.subcommand == "scan":
         with open(args.input, "r", encoding="utf-8") as f:
             inv = json.load(f)
-        findings = evaluate_inventory(inv)
+        findings = evaluate_inventory(inv, provider_filter=args.provider, include_suppressed=args.include_suppressed)
         if args.format == "table":
-            print(f"{'SEVERITY':<10} {'RULE ID':<22} {'RESOURCE':<28} {'TITLE'}")
-            print("-" * 105)
+            print(f"{'SEVERITY':<10} {'RULE ID':<22} {'PROVIDER':<10} {'RESOURCE':<28} {'TITLE'}")
+            print("-" * 115)
             for f in findings:
-                glyph = "[!]" if f["severity"] == "CRITICAL" else "[/!\\]"
-                print(f"{glyph + ' ' + f['severity']:<10} {f['rule_id']:<22} {f['resource_id']:<28} {f['title']}")
-            print("-" * 105)
-            print(f"Total Findings: {len(findings)}")
+                glyph = "[!]" if f["severity"] == "CRITICAL" else "[*]"
+                status_suffix = " (SUPPRESSED)" if f.get("status") == "SUPPRESSED" else ""
+                print(f"{glyph + ' ' + f['severity']:<10} {f['rule_id']:<22} {f['provider']:<10} {f['resource_id']:<28} {f['title']}{status_suffix}")
+            print("-" * 115)
+            print(f"Total Findings: {len(findings)} (Provider filter: {args.provider})")
         elif args.format == "json":
             print(json.dumps(findings, indent=2))
         elif args.format == "sarif":
@@ -257,14 +798,52 @@ def main():
                 }]
             }
             print(json.dumps(sarif, indent=2))
+
+    elif args.subcommand == "rql":
+        with open(args.input, "r", encoding="utf-8") as f:
+            inv = json.load(f)
+        matched = evaluate_rql_query(inv, args.query)
+        print(f"RQL Query: {args.query}")
+        print(f"Matched Resources ({len(matched)}):")
+        for r in matched:
+            print(f"  - [{r.get('provider')}] {r.get('id')} ({r.get('resource_type')}) - {r.get('name')}")
+
+    elif args.subcommand == "drift":
+        with open(args.baseline, "r", encoding="utf-8") as f:
+            b_inv = json.load(f)
+        with open(args.current, "r", encoding="utf-8") as f:
+            c_inv = json.load(f)
+        diffs = detect_drift(b_inv, c_inv)
+        print(f"Configuration Drift Detection ({len(diffs)} resources drifted):")
+        for d in diffs:
+            print(f"\nResource: {d['resource_id']} ({d['resource_arn']})")
+            print(f"  Baseline Hash: {d['baseline_hash'][:12]}... -> Current Hash: {d['current_hash'][:12]}...")
+            for attr in d["attribute_diffs"]:
+                print(f"  Attribute: {attr['attribute']}: {attr['baseline_value']} => {attr['current_value']}")
+
+    elif args.subcommand == "suppress":
+        res = suppress_finding(args.finding_id, args.reason, persist=True)
+        print(f"[SUCCESS] Suppressed finding '{res['finding_id']}' with reason: {res['reason']}")
+
     elif args.subcommand == "remediate":
         match = next((r for r in RULES if r["id"].lower() == args.rule.lower()), None)
         if match:
             patch = match["remediation_hcl"].replace("{{RESOURCE_ID}}", args.resource_name)
-            print(f"# Remediation Patch for Rule {match['id']}\n{patch}")
+            cli = match.get("remediation_cli", "").replace("{{RESOURCE_ID}}", args.resource_name)
+            print(f"# Terraform Remediation for Rule {match['id']}:\n{patch}\n")
+            print(f"# Cloud CLI Command:\n{cli}")
         else:
             print(f"Unknown rule: {args.rule}", file=sys.stderr)
             sys.exit(1)
+
+    elif args.subcommand == "rules":
+        print(f"{'RULE ID':<22} {'SEVERITY':<10} {'PROVIDER':<10} {'RESOURCE TYPE':<26} {'TITLE'}")
+        print("-" * 115)
+        for r in RULES:
+            print(f"{r['id']:<22} {r['severity']:<10} {r['provider']:<10} {r['resource_type']:<26} {r['title']}")
+        print("-" * 115)
+        print(f"Total Rules in Catalog: {len(RULES)}")
+
     else:
         parser.print_help()
 

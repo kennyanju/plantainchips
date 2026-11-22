@@ -108,6 +108,14 @@ impl ComplianceMapper {
     }
 }
 
+/// Attribute-level diff between baseline and current configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AttributeDiff {
+    pub attribute_path: String,
+    pub baseline_value: String,
+    pub current_value: String,
+}
+
 /// Out-of-band console drift detection comparing current vs baseline state hashes.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DriftRecord {
@@ -115,6 +123,7 @@ pub struct DriftRecord {
     pub resource_arn: String,
     pub baseline_hash: String,
     pub current_hash: String,
+    pub attribute_diffs: Vec<AttributeDiff>,
 }
 
 pub struct DriftDetector;
@@ -130,11 +139,33 @@ impl DriftDetector {
                 let base_hash = base.state_hash();
                 let curr_hash = curr.state_hash();
                 if base_hash != curr_hash {
+                    let mut diffs = Vec::new();
+                    // Identify diffs across top-level state keys
+                    if let (Some(b_obj), Some(c_obj)) = (base.state.as_object(), curr.state.as_object()) {
+                        for (k, c_val) in c_obj {
+                            if let Some(b_val) = b_obj.get(k) {
+                                if b_val != c_val {
+                                    diffs.push(AttributeDiff {
+                                        attribute_path: format!("state.{}", k),
+                                        baseline_value: b_val.to_string(),
+                                        current_value: c_val.to_string(),
+                                    });
+                                }
+                            } else {
+                                diffs.push(AttributeDiff {
+                                    attribute_path: format!("state.{}", k),
+                                    baseline_value: "null".into(),
+                                    current_value: c_val.to_string(),
+                                });
+                            }
+                        }
+                    }
                     drift_records.push(DriftRecord {
                         resource_id: curr.id.clone(),
                         resource_arn: curr.arn.clone(),
                         baseline_hash: base_hash,
                         current_hash: curr_hash,
+                        attribute_diffs: diffs,
                     });
                 }
             }
@@ -148,6 +179,7 @@ impl DriftDetector {
 pub enum PostureCommand {
     IngestJson(String),
     EvaluateAll,
+    SuppressFinding { finding_id: String, reason: String },
     Clear,
 }
 
@@ -156,6 +188,7 @@ pub enum PostureCommand {
 pub struct PostureStateSnapshot {
     pub inventory: CloudResourceInventory,
     pub findings: Vec<Finding>,
+    pub suppressions: HashMap<String, String>,
 }
 
 /// Primary domain engine implementation for PostureSecure.
@@ -163,6 +196,7 @@ pub struct PostureStateSnapshot {
 pub struct PostureEngine {
     pub inventory: CloudResourceInventory,
     pub findings: Vec<Finding>,
+    pub suppressions: HashMap<String, String>,
     mapper: ComplianceMapper,
 }
 
@@ -171,6 +205,7 @@ impl PostureEngine {
         Self {
             inventory: CloudResourceInventory::new(),
             findings: Vec::new(),
+            suppressions: HashMap::new(),
             mapper: ComplianceMapper::new(),
         }
     }
@@ -215,10 +250,27 @@ impl CloudSecureAppEngine for PostureEngine {
                     state_hash: "evaluated".into(),
                 })
             }
+            PostureCommand::SuppressFinding { finding_id, reason } => {
+                let mut found = false;
+                for f in &mut self.findings {
+                    if f.id == finding_id {
+                        f.status = cloudsecure_types::FindingStatus::Suppressed;
+                        found = true;
+                    }
+                }
+                self.suppressions.insert(finding_id.clone(), reason);
+                Ok(CommandReceipt {
+                    command_name: "SuppressFinding".into(),
+                    records_affected: if found { 1 } else { 0 },
+                    execution_ms: start.elapsed().as_millis() as u64,
+                    state_hash: format!("suppressed-{}", finding_id),
+                })
+            }
             PostureCommand::Clear => {
                 let prev_count = self.inventory.len();
                 self.inventory = CloudResourceInventory::new();
                 self.findings.clear();
+                self.suppressions.clear();
                 Ok(CommandReceipt {
                     command_name: "Clear".into(),
                     records_affected: prev_count,
@@ -233,6 +285,7 @@ impl CloudSecureAppEngine for PostureEngine {
         PostureStateSnapshot {
             inventory: self.inventory.clone(),
             findings: self.findings.clone(),
+            suppressions: self.suppressions.clone(),
         }
     }
 

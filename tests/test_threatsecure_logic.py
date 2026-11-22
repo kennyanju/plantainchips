@@ -84,6 +84,36 @@ class TestThreatSecureEngine(unittest.TestCase):
         self.assertTrue(any("update-access-key" in a for a in actions))
         self.assertTrue(any("modify-snapshot-attribute" in a for a in actions))
 
+    def test_rql_threat_hunting(self):
+        matched = self.cli.query_rql_events(self.events, "event from cloud.audit_logs where event_name = 'StopLogging'")
+        self.assertEqual(len(matched), 1)
+        self.assertEqual(matched[0]["event_name"], "StopLogging")
+
+    def test_multicloud_event_normalization(self):
+        # Test K8s audit event
+        k8s_ev = {
+            "verb": "create",
+            "event_name": "pods/exec",
+            "user": {"username": "attacker-sa"},
+            "request_parameters": {"pod": "production-payment-api"},
+            "source_ip_address": "10.244.0.15"
+        }
+        dets = self.cli.evaluate_event(k8s_ev)
+        self.assertEqual(len(dets), 1)
+        self.assertEqual(dets[0]["rule_id"], "CDR-K8S-001")
+        self.assertEqual(dets[0]["technique_id"], "T1609")
+        self.assertEqual(dets[0]["principal_arn"], "attacker-sa")
+
+    def test_containment_playbook_generation(self):
+        all_dets = []
+        for ev in self.events:
+            all_dets.extend(self.cli.evaluate_event(ev))
+        incidents = self.cli.correlate_kill_chains(all_dets)
+        top_inc = incidents[0]
+        playbook = self.cli.generate_containment_playbook(top_inc)
+        self.assertIn("RevokeActiveSessions", playbook)
+        self.assertIn("update-access-key", playbook)
+
     def test_deterministic_event_hash(self):
         for ev in self.events:
             raw = f"{ev['event_id']}:{ev['event_time']}:{ev['event_source']}:{ev['event_name']}"
