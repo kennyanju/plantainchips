@@ -574,7 +574,7 @@ impl CloudSecureAppEngine for AiEngine {
             id: "aisecure",
             name: "AiSecure",
             pillar: "AI-SPM",
-            version: "0.1.0",
+            version: "0.2.0",
             license: "MIT OR Apache-2.0",
             description: "AI Security Posture Management (AI-SPM) defending against OWASP LLM Top 10 vulnerabilities, model theft, and shadow AI usage.",
         }
@@ -674,7 +674,7 @@ impl CloudSecureAppEngine for AiEngine {
                 tool: SarifTool {
                     driver: SarifDriver {
                         name: "AiSecure".into(),
-                        version: "0.1.0".into(),
+                        version: "0.2.0".into(),
                         rules,
                     },
                 },

@@ -175,7 +175,7 @@
       statuses: {},
       digests: {},
       logEntries: [
-        '[INIT] LauncherSecure v0.1.0 initialized in local browser sandbox.',
+        '[INIT] LauncherSecure v0.2.0 initialized in local browser sandbox.',
         '[KEYS] Root verification key: SHA256:7b53cf11a0d8442e9e2b10a4e8d356...',
         '[READY] All 14 local engine packages authenticated with valid release signatures.'
       ]
@@ -375,7 +375,7 @@
 
   // Initialize Launcher versions
   Object.keys(APPS).forEach(key => {
-    state.launcher.versions[key] = 'v0.1.0';
+    state.launcher.versions[key] = 'v0.2.0';
     state.launcher.statuses[key] = '[OK] INSTALLED';
     state.launcher.digests[key] = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
   });
@@ -922,7 +922,7 @@
               </select>
             </div>
             <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-              <button class="btn btn-primary btn-sm" id="btn-launcher-update-all">Update All (v0.1.1)</button>
+              <button class="btn btn-primary btn-sm" id="btn-launcher-update-all">Update All (v0.2.1)</button>
               <button class="btn btn-secondary btn-sm" id="btn-launcher-rollback">Rollback (N-1)</button>
               <button class="btn btn-secondary btn-sm" id="btn-launcher-corrupt">Simulate Mismatch</button>
               <button class="btn btn-secondary btn-sm" id="btn-launcher-restore">Restore Digest</button>
@@ -988,13 +988,13 @@
     if (updateAllBtn) {
       updateAllBtn.addEventListener('click', () => {
         Object.keys(APPS).forEach(k => {
-          state.launcher.versions[k] = 'v0.1.1';
+          state.launcher.versions[k] = 'v0.2.1';
           state.launcher.statuses[k] = '[OK] INSTALLED';
           state.launcher.digests[k] = '9a1c8f420e6f7c81a2f441098de24a194bc02891f7c819283746501928374619';
         });
-        state.launcher.logEntries.push('[UPDATE] All 14 security applications upgraded to v0.1.1 with verified Ed25519 signatures.');
+        state.launcher.logEntries.push('[UPDATE] All 14 security applications upgraded to v0.2.1 with verified Ed25519 signatures.');
         renderLauncherWorkbench();
-        showToast('All 14 applications successfully upgraded to v0.1.1', 'pass');
+        showToast('All 14 applications successfully upgraded to v0.2.1', 'pass');
       });
     }
 
@@ -1002,13 +1002,13 @@
     if (rollbackBtn) {
       rollbackBtn.addEventListener('click', () => {
         Object.keys(APPS).forEach(k => {
-          state.launcher.versions[k] = 'v0.1.0';
+          state.launcher.versions[k] = 'v0.2.0';
           state.launcher.statuses[k] = '[OK] INSTALLED';
           state.launcher.digests[k] = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
         });
-        state.launcher.logEntries.push('[ROLLBACK] N-1 rollback executed. All 14 applications restored to v0.1.0 baseline.');
+        state.launcher.logEntries.push('[ROLLBACK] N-1 rollback executed. All 14 applications restored to v0.2.0 baseline.');
         renderLauncherWorkbench();
-        showToast('Rollback complete: Suite reverted to v0.1.0 baseline', 'warn');
+        showToast('Rollback complete: Suite reverted to v0.2.0 baseline', 'warn');
       });
     }
 
@@ -1920,10 +1920,10 @@ CMD ["npm", "start"]`,
           bomFormat: 'CycloneDX',
           specVersion: '1.5',
           version: 1,
-          metadata: { timestamp: new Date().toISOString(), component: { name: 'cloudsecure-iac', version: '0.1.0' } },
+          metadata: { timestamp: new Date().toISOString(), component: { name: 'cloudsecure-iac', version: '0.2.0' } },
           components: [
             { type: 'application', name: 'terraform-aws-sg', version: '5.1.0', purl: 'pkg:terraform/hashicorp/aws@5.1.0' },
-            { type: 'library', name: 'cloudsecure-policy', version: '0.1.0', purl: 'pkg:cargo/cloudsecure-policy@0.1.0' }
+            { type: 'library', name: 'cloudsecure-policy', version: '0.2.0', purl: 'pkg:cargo/cloudsecure-policy@0.2.0' }
           ]
         };
         downloadJson('cyclonedx-sbom.json', sbomData);
@@ -3082,7 +3082,7 @@ spec:
               description: stat.includes('QUARANTINED')
                 ? `SHA-256 checksum verification failed for ${APPS[k].name}`
                 : `Security update available for ${APPS[k].name}`,
-              remediation: stat.includes('QUARANTINED') ? 'Restore verified digest signature' : 'Run Update All (v0.1.1)'
+              remediation: stat.includes('QUARANTINED') ? 'Restore verified digest signature' : 'Run Update All (v0.2.1)'
             });
           }
         });
@@ -3332,7 +3332,7 @@ spec:
         "tool": {
           "driver": {
             "name": app.name,
-            "version": "0.1.0",
+            "version": "0.2.0",
             "informationUri": "https://github.com/kennyanju/plantainchips",
             "rules": rules
           }
@@ -3353,7 +3353,7 @@ spec:
         app_id: app.id,
         pillar: app.pillar,
         timestamp: new Date().toISOString(),
-        version: "0.1.0",
+        version: "0.2.0",
         status: findings.length === 0 ? "PASSED" : "FINDINGS_DETECTED",
         environment: state.posture.env,
         findings_count: findings.length,

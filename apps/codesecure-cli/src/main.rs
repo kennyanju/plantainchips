@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[command(name = "codesecure-cli")]
-#[command(version = "0.1.0")]
+#[command(version = "0.2.0")]
 #[command(about = "CodeSecure: ASPM & IaC Shift-Left Static Analyzer CLI & Agent MCP Server")]
 struct Cli {
     /// Launch in Model Context Protocol (MCP) server mode over stdio for AI agents
@@ -186,7 +186,7 @@ async fn run_mcp_server() -> Result<(), Box<dyn std::error::Error>> {
                     "capabilities": { "tools": {} },
                     "serverInfo": {
                         "name": "codesecure-mcp",
-                        "version": "0.1.0"
+                        "version": "0.2.0"
                     }
                 }
             }),

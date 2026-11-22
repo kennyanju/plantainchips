@@ -378,7 +378,7 @@ impl CloudSecureAppEngine for IdentityEngine {
             id: "identitysecure",
             name: "IdentitySecure",
             pillar: "IDENTITY",
-            version: "0.1.0",
+            version: "0.2.0",
             license: "MIT OR Apache-2.0",
             description: "CIEM net-effective permissions solver, privilege escalation detector, and blast radius engine.",
         }
@@ -467,7 +467,7 @@ impl CloudSecureAppEngine for IdentityEngine {
                 tool: SarifTool {
                     driver: SarifDriver {
                         name: "IdentitySecure".into(),
-                        version: "0.1.0".into(),
+                        version: "0.2.0".into(),
                         information_uri: "https://github.com/kennyanju/plantainchips".into(),
                         rules,
                     },

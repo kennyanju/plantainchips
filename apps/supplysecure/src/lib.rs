@@ -598,7 +598,7 @@ impl CloudSecureAppEngine for SupplyEngine {
             id: "supplysecure",
             name: "SupplySecure",
             pillar: "SSCS",
-            version: "0.1.0",
+            version: "0.2.0",
             license: "MIT OR Apache-2.0",
             description: "Software Supply Chain Security (SSCS) verifying SLSA Level 3 provenance, Cosign cryptographic signatures, and dependency confusion vulnerabilities.",
         }
@@ -712,7 +712,7 @@ impl CloudSecureAppEngine for SupplyEngine {
                 tool: SarifTool {
                     driver: SarifDriver {
                         name: "SupplySecure".into(),
-                        version: "0.1.0".into(),
+                        version: "0.2.0".into(),
                         rules,
                     },
                 },

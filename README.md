@@ -6,7 +6,7 @@
 [![License](https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-blue.svg)](LICENSE-MIT)
 [![Rust](https://img.shields.io/badge/rust-1.80%2B-orange.svg)](https://www.rust-lang.org)
 [![Unit Tests](https://img.shields.io/badge/tests-79%20passed-brightgreen.svg)](tests/)
-[![Release](https://img.shields.io/badge/release-v0.1.0-blue.svg)](https://github.com/kennyanju/plantainchips/releases/tag/v0.1.0)
+[![Release](https://img.shields.io/badge/release-v0.2.0-blue.svg)](https://github.com/kennyanju/plantainchips/releases/tag/v0.2.0)
 [![Documentation](https://img.shields.io/badge/docs-tutorial%20available-purple.svg)](TUTORIAL.md)
 
 ---

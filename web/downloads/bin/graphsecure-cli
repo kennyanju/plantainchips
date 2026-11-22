@@ -148,7 +148,7 @@ def run_mcp():
                 "result": {
                     "protocolVersion": "2024-11-05",
                     "capabilities": {"tools": {}},
-                    "serverInfo": {"name": "graphsecure-mcp", "version": "0.1.0"}
+                    "serverInfo": {"name": "graphsecure-mcp", "version": "0.2.0"}
                 }
             }
         elif method == "tools/list":
@@ -312,7 +312,7 @@ def main():
                 "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
                 "version": "2.1.0",
                 "runs": [{
-                    "tool": {"driver": {"name": "GraphSecure", "version": "0.1.0"}},
+                    "tool": {"driver": {"name": "GraphSecure", "version": "0.2.0"}},
                     "results": [{
                         "ruleId": "GRAPH-TOXIC-001",
                         "level": "error" if p["severity"] == "CRITICAL" else "warning",

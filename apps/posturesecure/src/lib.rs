@@ -222,7 +222,7 @@ impl CloudSecureAppEngine for PostureEngine {
             id: "posturesecure",
             name: "PostureSecure",
             pillar: "CSPM",
-            version: "0.1.0",
+            version: "0.2.0",
             license: "MIT OR Apache-2.0",
             description: "Cloud Security Posture Management engine evaluating CIS benchmarks and multi-cloud RQL policies.",
         }
@@ -331,7 +331,7 @@ impl CloudSecureAppEngine for PostureEngine {
                 tool: SarifTool {
                     driver: SarifDriver {
                         name: "PostureSecure".into(),
-                        version: "0.1.0".into(),
+                        version: "0.2.0".into(),
                         information_uri: "https://github.com/kennyanju/plantainchips".into(),
                         rules,
                     },

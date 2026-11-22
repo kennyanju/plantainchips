@@ -1,9 +1,9 @@
 #!/bin/sh
 set -e
 
-# Package CloudSecure v0.1.0 release artifacts into dist/ and web/downloads/
+# Package CloudSecure v0.2.0 release artifacts into dist/ and web/downloads/
 
-VERSION="0.1.0"
+VERSION="0.2.0"
 DIST_DIR="dist"
 WEB_DOWNLOADS_DIR="web/downloads"
 
@@ -37,6 +37,7 @@ chmod +x "${DIST_DIR}/install.sh"
 
 # 5. Synchronize artifacts to web/downloads for web and GitHub Pages distribution
 mkdir -p "${WEB_DOWNLOADS_DIR}/bin"
+rm -f "${WEB_DOWNLOADS_DIR}"/*.tar.gz "${WEB_DOWNLOADS_DIR}"/*.zip
 cp -f "${DIST_DIR}"/* "${WEB_DOWNLOADS_DIR}/"
 for cli in bin/*-cli; do
   if [ -f "$cli" ]; then

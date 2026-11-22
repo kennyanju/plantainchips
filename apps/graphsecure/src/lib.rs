@@ -426,7 +426,7 @@ impl CloudSecureAppEngine for GraphEngine {
             id: "graphsecure",
             name: "GraphSecure",
             pillar: "POSTURE",
-            version: "0.1.0",
+            version: "0.2.0",
             license: "MIT OR Apache-2.0",
             description: "Multi-cloud attack path simulator and choke point optimizer calculating shortest traversals to crown jewels.",
         }
@@ -524,7 +524,7 @@ impl CloudSecureAppEngine for GraphEngine {
                 tool: SarifTool {
                     driver: SarifDriver {
                         name: "GraphSecure".into(),
-                        version: "0.1.0".into(),
+                        version: "0.2.0".into(),
                         information_uri: "https://github.com/kennyanju/plantainchips".into(),
                         rules,
                     },

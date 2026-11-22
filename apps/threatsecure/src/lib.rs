@@ -463,7 +463,7 @@ impl CloudSecureAppEngine for ThreatEngine {
             id: "threatsecure",
             name: "ThreatSecure",
             pillar: "CDR",
-            version: "0.1.0",
+            version: "0.2.0",
             license: "MIT OR Apache-2.0",
             description: "Cloud Detection and Response (CDR) engine mapping multi-cloud audit logs to MITRE ATT&CK Cloud matrices and synthesizing kill chain incidents.",
         }
@@ -553,7 +553,7 @@ impl CloudSecureAppEngine for ThreatEngine {
                 tool: SarifTool {
                     driver: SarifDriver {
                         name: "ThreatSecure".into(),
-                        version: "0.1.0".into(),
+                        version: "0.2.0".into(),
                         rules,
                     },
                 },

@@ -516,7 +516,7 @@ impl CloudSecureAppEngine for NetEngine {
             id: "netsecure",
             name: "NetSecure",
             pillar: "CNS",
-            version: "0.1.0",
+            version: "0.2.0",
             license: "MIT OR Apache-2.0",
             description: "Cloud Network Security (CNS) analyzing VPC flow logs, isolating public database exposures, and synthesizing zero-trust microsegmentation policies.",
         }
@@ -616,7 +616,7 @@ impl CloudSecureAppEngine for NetEngine {
                 tool: SarifTool {
                     driver: SarifDriver {
                         name: "NetSecure".into(),
-                        version: "0.1.0".into(),
+                        version: "0.2.0".into(),
                         rules,
                     },
                 },

@@ -35,7 +35,7 @@ class TestLauncherSecureEngine(unittest.TestCase):
         self.assertIn("compliancesecure", governance_apps)
 
     def test_sha256_checksum_verification(self):
-        payload = b"cloudsecure-secure-binary-v0.1.0"
+        payload = b"cloudsecure-secure-binary-v0.2.0"
         expected = hashlib.sha256(payload).hexdigest()
 
         # Valid checksum matches
@@ -51,7 +51,7 @@ class TestLauncherSecureEngine(unittest.TestCase):
 
     def test_release_manifest_schema_and_platforms(self):
         self.assertEqual(self.manifest["app_id"], "posturesecure")
-        self.assertEqual(self.manifest["version"], "0.1.0")
+        self.assertEqual(self.manifest["version"], "0.2.0")
         self.assertEqual(len(self.manifest["ed25519_signature"]), 128)
 
         packages = self.manifest["packages"]
@@ -72,20 +72,20 @@ class TestLauncherSecureEngine(unittest.TestCase):
         rollback_store = {}
         app_state = {
             "id": "workloadsecure",
-            "installed_version": "0.1.0",
+            "installed_version": "0.2.0",
             "status": "INSTALLED"
         }
 
-        # Step 1: Upgrade to 0.2.0, store previous 0.1.0 in rollback_store
+        # Step 1: Upgrade to 0.2.1, store previous 0.2.0 in rollback_store
         rollback_store[app_state["id"]] = app_state["installed_version"]
-        app_state["installed_version"] = "0.2.0"
-        self.assertEqual(app_state["installed_version"], "0.2.0")
-        self.assertEqual(rollback_store["workloadsecure"], "0.1.0")
+        app_state["installed_version"] = "0.2.1"
+        self.assertEqual(app_state["installed_version"], "0.2.1")
+        self.assertEqual(rollback_store["workloadsecure"], "0.2.0")
 
         # Step 2: Trigger Rollback
         reverted_version = rollback_store.pop("workloadsecure")
         app_state["installed_version"] = reverted_version
-        self.assertEqual(app_state["installed_version"], "0.1.0")
+        self.assertEqual(app_state["installed_version"], "0.2.0")
         self.assertNotIn("workloadsecure", rollback_store)
 
     def test_platform_detector(self):

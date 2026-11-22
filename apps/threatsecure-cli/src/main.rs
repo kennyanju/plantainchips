@@ -8,7 +8,7 @@ use threatsecure::{CloudAuditEvent, ThreatCommand, ThreatEngine};
 
 #[derive(Parser, Debug)]
 #[command(name = "threatsecure-cli")]
-#[command(version = "0.1.0")]
+#[command(version = "0.2.0")]
 #[command(about = "ThreatSecure: Cloud Detection & Response (CDR) CLI & Agent MCP Server")]
 struct Cli {
     /// Launch in Model Context Protocol (MCP) server mode over stdio for AI agents
@@ -187,7 +187,7 @@ async fn run_mcp_server() -> Result<(), Box<dyn std::error::Error>> {
                     "capabilities": { "tools": {} },
                     "serverInfo": {
                         "name": "threatsecure-mcp",
-                        "version": "0.1.0"
+                        "version": "0.2.0"
                     }
                 }
             }),

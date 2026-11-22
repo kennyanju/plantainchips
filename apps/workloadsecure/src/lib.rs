@@ -404,7 +404,7 @@ impl CloudSecureAppEngine for WorkloadEngine {
             id: "workloadsecure",
             name: "WorkloadSecure",
             pillar: "WORKLOAD",
-            version: "0.1.0",
+            version: "0.2.0",
             license: "MIT OR Apache-2.0",
             description: "CWPP container image layer analyzer, CVE vulnerability matcher, and runtime profile generator.",
         }
@@ -493,7 +493,7 @@ impl CloudSecureAppEngine for WorkloadEngine {
                 tool: SarifTool {
                     driver: SarifDriver {
                         name: "WorkloadSecure".into(),
-                        version: "0.1.0".into(),
+                        version: "0.2.0".into(),
                         information_uri: "https://github.com/kennyanju/plantainchips".into(),
                         rules,
                     },

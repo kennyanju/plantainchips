@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[command(name = "launchersecure-cli")]
-#[command(version = "0.1.0")]
+#[command(version = "0.2.0")]
 #[command(about = "LauncherSecure: CloudSecure Suite Manager & Cryptographic Updater CLI & Agent MCP Server")]
 struct Cli {
     /// Launch in Model Context Protocol (MCP) server mode over stdio for AI agents
@@ -43,7 +43,7 @@ enum Commands {
         app: String,
 
         /// Target version string
-        #[arg(short, long, default_value = "0.1.0")]
+        #[arg(short, long, default_value = "0.2.0")]
         version: String,
     },
 
@@ -121,7 +121,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(Commands::Rollback { app }) => {
             let mut engine = LauncherEngine::new();
             // Pre-seed an install to demonstrate rollback
-            let dummy_payload = b"cloudsecure-binary-v0.1.0".to_vec();
+            let dummy_payload = b"cloudsecure-binary-v0.2.0".to_vec();
             let expected_sha256 = format!("{:x}", sha2::Sha256::digest(&dummy_payload));
             let _ = engine.execute(LauncherCommand::InstallApp {
                 app_id: app.clone(),
@@ -248,7 +248,7 @@ fn output_catalog(apps: &[&SuiteAppItem], format: OutputFormat) -> Result<(), Bo
                 "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
                 "version": "2.1.0",
                 "runs": [{
-                    "tool": { "driver": { "name": "LauncherSecure", "version": "0.1.0" } },
+                    "tool": { "driver": { "name": "LauncherSecure", "version": "0.2.0" } },
                     "results": results
                 }]
             });
@@ -287,7 +287,7 @@ async fn run_mcp_server() -> Result<(), Box<dyn std::error::Error>> {
                     "capabilities": { "tools": {} },
                     "serverInfo": {
                         "name": "launchersecure-mcp",
-                        "version": "0.1.0"
+                        "version": "0.2.0"
                     }
                 }
             }),
@@ -362,7 +362,7 @@ async fn run_mcp_server() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     "launcher_install_app" => {
                         let app_id = args.get("app_id").and_then(|s| s.as_str()).unwrap_or("");
-                        let version = args.get("version").and_then(|s| s.as_str()).unwrap_or("0.1.0");
+                        let version = args.get("version").and_then(|s| s.as_str()).unwrap_or("0.2.0");
                         let dummy_bytes = format!("bin-{}-{}", app_id, version).into_bytes();
                         let sha = format!("{:x}", sha2::Sha256::digest(&dummy_bytes));
 

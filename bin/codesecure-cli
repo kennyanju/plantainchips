@@ -292,7 +292,7 @@ def generate_cyclonedx_sbom(components):
         "version": 1,
         "metadata": {
             "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            "tools": [{"vendor": "CloudSecure", "name": "CodeSecure", "version": "0.1.0"}]
+            "tools": [{"vendor": "CloudSecure", "name": "CodeSecure", "version": "0.2.0"}]
         },
         "components": [
             {
@@ -314,7 +314,7 @@ def generate_spdx_sbom(components):
         "name": "CloudSecure-Application-SBOM",
         "documentNamespace": "https://cloudsecure.io/spdx/doc-001",
         "creationInfo": {
-            "creators": ["Tool: CodeSecure-0.1.0"],
+            "creators": ["Tool: CodeSecure-0.2.0"],
             "created": datetime.datetime.now(datetime.timezone.utc).isoformat()
         },
         "packages": [
@@ -352,7 +352,7 @@ def run_mcp():
                 "result": {
                     "protocolVersion": "2024-11-05",
                     "capabilities": {"tools": {}},
-                    "serverInfo": {"name": "codesecure-mcp", "version": "0.1.0"}
+                    "serverInfo": {"name": "codesecure-mcp", "version": "0.2.0"}
                 }
             }
         elif method == "tools/list":
@@ -489,7 +489,7 @@ def main():
                 "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
                 "version": "2.1.0",
                 "runs": [{
-                    "tool": {"driver": {"name": "CodeSecure", "version": "0.1.0"}},
+                    "tool": {"driver": {"name": "CodeSecure", "version": "0.2.0"}},
                     "results": [{
                         "ruleId": f["rule_id"],
                         "level": "error" if f["severity"] == "CRITICAL" else "warning",

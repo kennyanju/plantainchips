@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[command(name = "graphsecure-cli")]
-#[command(version = "0.1.0")]
+#[command(version = "0.2.0")]
 #[command(about = "GraphSecure: Cloud Security Graph & Attack Path Simulator CLI & Agent MCP Server")]
 struct Cli {
     /// Launch in Model Context Protocol (MCP) server mode over stdio for AI agents
@@ -228,7 +228,7 @@ async fn run_mcp_server() -> Result<(), Box<dyn std::error::Error>> {
                     "capabilities": { "tools": {} },
                     "serverInfo": {
                         "name": "graphsecure-mcp",
-                        "version": "0.1.0"
+                        "version": "0.2.0"
                     }
                 }
             }),

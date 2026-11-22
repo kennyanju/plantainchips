@@ -543,7 +543,7 @@ impl CloudSecureAppEngine for WaasEngine {
             id: "waassecure",
             name: "WaasSecure",
             pillar: "WAAS",
-            version: "0.1.0",
+            version: "0.2.0",
             license: "MIT OR Apache-2.0",
             description: "Web Application and API Security (WAAS) inspecting OWASP API Top 10 vulnerabilities, OpenAPI contract drift, and synthesizing WAF rules.",
         }
@@ -644,7 +644,7 @@ impl CloudSecureAppEngine for WaasEngine {
                 tool: SarifTool {
                     driver: SarifDriver {
                         name: "WaasSecure".into(),
-                        version: "0.1.0".into(),
+                        version: "0.2.0".into(),
                         rules,
                     },
                 },

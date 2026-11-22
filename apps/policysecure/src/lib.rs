@@ -461,7 +461,7 @@ impl CloudSecureAppEngine for PolicySecureEngine {
             id: "policysecure",
             name: "PolicySecure",
             pillar: "GOVERNANCE",
-            version: "0.1.0",
+            version: "0.2.0",
             license: "MIT OR Apache-2.0",
             description: "Unified RQL and Policy-as-Code Studio with AST explain profiler and test fixture runner.",
         }
@@ -563,7 +563,7 @@ impl CloudSecureAppEngine for PolicySecureEngine {
                 tool: SarifTool {
                     driver: SarifDriver {
                         name: "PolicySecure".into(),
-                        version: "0.1.0".into(),
+                        version: "0.2.0".into(),
                         information_uri: "https://github.com/kennyanju/plantainchips".into(),
                         rules,
                     },

@@ -8,7 +8,7 @@ use waassecure::{ApiTrafficRecord, OpenApiSpec, WaasCommand, WaasEngine};
 
 #[derive(Parser, Debug)]
 #[command(name = "waassecure-cli")]
-#[command(version = "0.1.0")]
+#[command(version = "0.2.0")]
 #[command(about = "WaasSecure: Web Application & API Security CLI & Agent MCP Server")]
 struct Cli {
     /// Launch in Model Context Protocol (MCP) server mode over stdio for AI agents
@@ -238,7 +238,7 @@ async fn run_mcp_server() -> Result<(), Box<dyn std::error::Error>> {
                     "capabilities": { "tools": {} },
                     "serverInfo": {
                         "name": "waassecure-mcp",
-                        "version": "0.1.0"
+                        "version": "0.2.0"
                     }
                 }
             }),

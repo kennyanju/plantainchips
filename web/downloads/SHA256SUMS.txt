@@ -1,4 +1,4 @@
-b80ae620b70fe33c070bd448f3108f0b6acc08c9d0fee9286bb3919c52a11d8c  cloudsecure-suite-v0.1.0.tar.gz
-e128877a74e1991658c7cb0a51ea6200e4d9acdbe2614db721b3ad6f80042707  launchersecure-v0.1.0.tar.gz
-18c18c97d6bfe0f153f8754f555da552c0ab96086dd1a0c0dfd98868c260abea  cloudsecure-suite-v0.1.0.zip
-c5af4c6acc7d1255f750ad6f3412496a2dacec84981394bda7443938d63d99f7  install.sh
+641597842b4a84ef2c020f2a6a4e816cd85e6965b81d16afb1925ed497d993a9  cloudsecure-suite-v0.2.0.tar.gz
+faca1ef2e7ad1b1cb0cab54a895cbacd20a4c8f90b3cb27bfcf638d5dc0c1e75  launchersecure-v0.2.0.tar.gz
+c35da3bf01b9204bd5bff56a7a8858b450d0672663d9f3033d4ba100b48e71c6  cloudsecure-suite-v0.2.0.zip
+fec9ec5f28021e12dd8728d7bd0477792506e47723d5f04fe868f18051f319b3  install.sh

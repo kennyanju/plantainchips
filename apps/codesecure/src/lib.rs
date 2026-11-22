@@ -233,7 +233,7 @@ impl ScaAndSbomEngine {
             "version": 1,
             "metadata": {
                 "timestamp": Utc::now().to_rfc3339(),
-                "tools": [{ "vendor": "CloudSecure", "name": "CodeSecure", "version": "0.1.0" }]
+                "tools": [{ "vendor": "CloudSecure", "name": "CodeSecure", "version": "0.2.0" }]
             },
             "components": comp_json
         })
@@ -320,7 +320,7 @@ impl CloudSecureAppEngine for CodeEngine {
             id: "codesecure",
             name: "CodeSecure",
             pillar: "CODE",
-            version: "0.1.0",
+            version: "0.2.0",
             license: "MIT OR Apache-2.0",
             description: "ASPM and Infrastructure as Code (IaC) static analyzer for Terraform, CloudFormation, Kubernetes, and Dockerfiles.",
         }
@@ -396,7 +396,7 @@ impl CloudSecureAppEngine for CodeEngine {
                 tool: SarifTool {
                     driver: SarifDriver {
                         name: "CodeSecure".into(),
-                        version: "0.1.0".into(),
+                        version: "0.2.0".into(),
                         information_uri: "https://github.com/kennyanju/plantainchips".into(),
                         rules,
                     },

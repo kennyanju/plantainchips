@@ -513,7 +513,7 @@ impl CloudSecureAppEngine for UnifiedPostureAggregator {
             id: "compliancesecure",
             name: "ComplianceSecure",
             pillar: "GOVERNANCE",
-            version: "0.1.0",
+            version: "0.2.0",
             license: "MIT OR Apache-2.0",
             description: "Executive compliance command center, top-10 breach-stopping remediation queue, and signed audit evidence exporter.",
         }
@@ -618,7 +618,7 @@ impl CloudSecureAppEngine for UnifiedPostureAggregator {
                 tool: SarifTool {
                     driver: SarifDriver {
                         name: "ComplianceSecure".into(),
-                        version: "0.1.0".into(),
+                        version: "0.2.0".into(),
                         information_uri: "https://github.com/kennyanju/plantainchips".into(),
                         rules,
                     },

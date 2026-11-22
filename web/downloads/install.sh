@@ -8,7 +8,7 @@ INSTALL_DIR="${HOME}/.cloudsecure/bin"
 REPO_RAW="https://raw.githubusercontent.com/kennyanju/plantainchips/main"
 
 echo "=========================================================="
-echo " CloudSecure v0.1.0: Open-Source Pure Rust CNAPP Suite"
+echo " CloudSecure v0.2.0: Open-Source Pure Rust CNAPP Suite"
 echo "=========================================================="
 echo "Installing binaries to: ${INSTALL_DIR}"
 

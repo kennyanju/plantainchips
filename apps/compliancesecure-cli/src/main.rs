@@ -10,7 +10,7 @@ use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[command(name = "compliancesecure-cli")]
-#[command(version = "0.1.0")]
+#[command(version = "0.2.0")]
 #[command(about = "ComplianceSecure: Executive Command Center & Multi-Framework Audit Exporter CLI & MCP")]
 struct Cli {
     /// Launch in Model Context Protocol (MCP) server mode over stdio for AI agents
@@ -126,7 +126,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
                         "version": "2.1.0",
                         "runs": [{
-                            "tool": { "driver": { "name": "ComplianceSecure", "version": "0.1.0" } },
+                            "tool": { "driver": { "name": "ComplianceSecure", "version": "0.2.0" } },
                             "results": results
                         }]
                     });
@@ -190,7 +190,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
                         "version": "2.1.0",
                         "runs": [{
-                            "tool": { "driver": { "name": "ComplianceSecure", "version": "0.1.0" } },
+                            "tool": { "driver": { "name": "ComplianceSecure", "version": "0.2.0" } },
                             "results": results
                         }]
                     });
@@ -292,7 +292,7 @@ fn run_mcp_server() -> Result<(), Box<dyn std::error::Error>> {
                     "capabilities": { "tools": {} },
                     "serverInfo": {
                         "name": "compliancesecure-mcp",
-                        "version": "0.1.0"
+                        "version": "0.2.0"
                     }
                 }
             }),

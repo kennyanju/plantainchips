@@ -296,7 +296,7 @@ def run_mcp():
                 "result": {
                     "protocolVersion": "2024-11-05",
                     "capabilities": {"tools": {}},
-                    "serverInfo": {"name": "aisecure-mcp", "version": "0.1.0"}
+                    "serverInfo": {"name": "aisecure-mcp", "version": "0.2.0"}
                 }
             }
         elif method == "tools/list":
@@ -481,7 +481,7 @@ def main():
                 "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
                 "version": "2.1.0",
                 "runs": [{
-                    "tool": {"driver": {"name": "AiSecure", "version": "0.1.0"}},
+                    "tool": {"driver": {"name": "AiSecure", "version": "0.2.0"}},
                     "results": [{
                         "ruleId": v["rule_id"],
                         "level": "error" if v["severity"] == "CRITICAL" else "warning",
@@ -521,7 +521,7 @@ def main():
                 "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
                 "version": "2.1.0",
                 "runs": [{
-                    "tool": {"driver": {"name": "AiSecure", "version": "0.1.0"}},
+                    "tool": {"driver": {"name": "AiSecure", "version": "0.2.0"}},
                     "results": [{
                         "ruleId": v["rule_id"],
                         "level": "error" if v["severity"] == "CRITICAL" else "warning",
